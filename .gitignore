@@ -18,6 +18,15 @@ build/
 *.spec
 *.pdb
 
+# ── 测试 / 打包产物 ──
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage*.json
+*.nupkg
+artifacts/
+
 # ── 本地临时图片（README 用的素材在 assets/ 里）──
 /*.png
 /*.jpg

@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+    1. [零第三方依赖] 不用 xunit / nunit / MSTest 包。
+       手写一个极小的测试运行器，Main 返回非 0 表示失败。
+       这样 CI 与本地都不需要联网拉包。
+    2. [行为对齐] 断言必须与 Python 版 tests/test_protocols.py、
+       tests/test_history.py 一一对应 —— 两边算出来的数必须相同。
+    3. [零硬件] 不许打开 HID 句柄。
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <!-- Palette 用到 WPF 的 Color/Brush，测试项目必须开 UseWPF -->
+    <UseWPF>true</UseWPF>
+    <!-- TrayIconArt 用 GDI+ 画图标，测试要能渲染它来断言几何 -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>PeripheralBattery.Tests</AssemblyName>
+    <RootNamespace>PeripheralBattery.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 直接链接被测源码，避免把 WPF 窗体也拖进测试宿主 -->
+    <Compile Include="..\src-cs\Models\Models.cs" Link="Models\Models.cs" />
+    <Compile Include="..\src-cs\Models\TooltipText.cs" Link="Models\TooltipText.cs" />
+    <Compile Include="..\src-cs\Hardware\Protocols.cs" Link="Hardware\Protocols.cs" />
+    <!-- 蓝牙电量只用到 SetupAPI 声明与 MAC 解析，不打开任何句柄 -->
+    <Compile Include="..\src-cs\Core\Win32.cs" Link="Core\Win32.cs" />
+    <Compile Include="..\src-cs\Core\BluetoothBattery.cs" Link="Core\BluetoothBattery.cs" />
+    <Compile Include="..\src-cs\Services\History.cs" Link="Services\History.cs" />
+    <Compile Include="..\src-cs\Services\Settings.cs" Link="Services\Settings.cs" />
+    <Compile Include="..\src-cs\UI\Palette.cs" Link="UI\Palette.cs" />
+    <Compile Include="..\src-cs\UI\TrayIconArt.cs" Link="UI\TrayIconArt.cs" />
+  </ItemGroup>
+
+</Project>

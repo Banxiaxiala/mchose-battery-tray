@@ -1,24 +1,32 @@
-# Python
+# ── Python 版（旧实现，保留作协议基准）──
 __pycache__/
 *.py[cod]
-*.egg-info/
 .venv/
 venv/
 
-# PyInstaller 构建产物
-build/
+# ── .NET 构建产物：绝不提交二进制 ──
+[Bb]in/
+[Oo]bj/
 dist/
-*.spec
+release/
+*.user
+*.suo
+.vs/
 
-# 本地临时图片（README 用的素材在 assets/ 里）
+# ── 旧版 PyInstaller 产物 ──
+build/
+*.spec
+*.pdb
+
+# ── 本地临时图片（README 用的素材在 assets/ 里）──
 /*.png
 /*.jpg
 
-# 编辑器
+# ── 编辑器 ──
 .vscode/
 .idea/
 *.swp
 
-# 系统
+# ── 系统 ──
 Thumbs.db
 desktop.ini

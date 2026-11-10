@@ -1,0 +1,41 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
+    1. [目标框架] net8.0-windows + UseWPF。改成 net48 会丢亚克力与圆角 DWM 支持，
+       改成 net10 需要额外运行时，两者都别动。
+    2. [零第三方依赖] 不许加任何 PackageReference。WPF 自带的东西足够画这套卡片。
+    3. [单文件发布] 用 PublishSingleFile + SelfContained=false，
+       产物约 1MB，依赖系统已有的 WindowsDesktop 运行时。
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+    <!-- WPF 与 WinForms 都有 Color/Brush/Point，隐式 using 会造成 CS0104 二义性。
+         这里关掉隐式 using，改用 GlobalUsings.cs 里的显式别名。 -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- WPF 与 WinForms 都有 Color/Point/Brush，隐式 using 会造成 CS0104 -->
+    <NoWarn>$(NoWarn);WFAC010;CS0104</NoWarn>
+    <AssemblyName>外设电量</AssemblyName>
+    <RootNamespace>PeripheralBattery</RootNamespace>
+    <ApplicationIcon>..\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>4.0.0</Version>
+    <Product>外设电量</Product>
+    <AssemblyTitle>外设电量</AssemblyTitle>
+    <FileDescription>外设电量</FileDescription>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="..\app.ico" Link="app.ico" />
+  </ItemGroup>
+
+</Project>

@@ -47,6 +47,18 @@ namespace PeripheralBattery.Tools
             {
                 new()
                 {
+                    Title = "只有一台",
+                    Note = "单环，占满图标",
+                    Rings = new[] { Make(82) },
+                },
+                new()
+                {
+                    Title = "两台",
+                    Note = "两环均匀分布",
+                    Rings = new[] { Make(82), Make(35) },
+                },
+                new()
+                {
                     Title = "全部正常",
                     Note = "三圈按电量描弧",
                     Rings = new[] { Make(82), Make(55), Make(74) },
@@ -259,7 +271,15 @@ namespace PeripheralBattery.Tools
         private static void AppendIcon(StringBuilder sb, Reading?[]? rings,
             string foreColor, int pixelSize)
         {
-            var geometry = TrayIconArt.Default;
+            // 按**实际环数**取几何：一台设备就画一圈，不要留空轨道。
+            // 与 TrayIconArt.Render 的行为保持一致。
+            int ringCount = 0;
+            if (rings != null)
+            {
+                foreach (var r in rings) if (r != null) ringCount++;
+            }
+            if (ringCount == 0) ringCount = 1;
+            var geometry = RingGeometry.ForCount(ringCount);
             var palette = RingColors.Default;
 
             // 以 24px 为基准换算：几何参数是按 24px 反推的

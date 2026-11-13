@@ -9,6 +9,89 @@ using PeripheralBattery.UI;
 
 namespace PeripheralBattery.Tests
 {
+    public static class TrayGeometryTests
+    {
+        // 托盘图标应当**按实际设备数**画环，而不是永远三圈。
+        // 只有一台却画三圈（两圈空轨道）会让用户以为还有设备没读到，
+        // 而且白白浪费图标面积。
+
+        [Test]
+        public static void SingleDeviceDrawsSingleRing()
+        {
+            var geometry = UI.RingGeometry.ForCount(1);
+            Assert.Equal(1, geometry.Radii.Length, "一台设备只画一圈");
+            Assert.Equal(1, geometry.Strokes.Length, "描边数也要匹配");
+        }
+
+        [Test]
+        public static void TwoDevicesDrawTwoRings()
+        {
+            var geometry = UI.RingGeometry.ForCount(2);
+            Assert.Equal(2, geometry.Radii.Length, "两台设备画两圈");
+        }
+
+        [Test]
+        public static void ThreeDevicesDrawThreeRings()
+        {
+            var geometry = UI.RingGeometry.ForCount(3);
+            Assert.Equal(3, geometry.Radii.Length, "三台设备画三圈");
+        }
+
+        [Test]
+        public static void RingCountIsClamped()
+        {
+            // 0 或负数不能画出「没有环」的图标；4 以上也不能超几何上限
+            Assert.Equal(1, UI.RingGeometry.ForCount(0).Radii.Length, "0 台按 1 圈处理");
+            Assert.Equal(1, UI.RingGeometry.ForCount(-5).Radii.Length, "负数同理");
+            Assert.Equal(3, UI.RingGeometry.ForCount(99).Radii.Length, "超过 3 台按 3 圈");
+        }
+
+        [Test]
+        public static void SingleRingIsThickerThanThreeRingOuter()
+        {
+            // 环少了，单圈可以更粗 —— 这是「加大一点」的诉求
+            var one = UI.RingGeometry.ForCount(1);
+            var three = UI.RingGeometry.ForCount(3);
+            Assert.True(one.Strokes[0] > three.Strokes[0],
+                $"单环描边({one.Strokes[0]}) 应比三环外圈({three.Strokes[0]}) 更粗");
+        }
+
+        [Test]
+        public static void RingsDoNotOverlap()
+        {
+            // 相邻圈不能粘连。阈值按环数区分：
+            //   1~2 环：可以做到 1.4px 以上，就要求 ≥1.4
+            //   3 环：0.8px 是实测穷举出的「三圈仍可分」下限（见 Default 注释），
+            //         硬要 1.4 就得把描边削到 2.2，实机上反而更糊
+            for (int count = 1; count <= 3; count++)
+            {
+                var geometry = UI.RingGeometry.ForCount(count);
+                double minGap = count >= 3 ? 0.75 : 1.4;
+                for (int i = 1; i < geometry.Radii.Length; i++)
+                {
+                    double outerInner = geometry.Radii[i - 1] - geometry.Strokes[i - 1] / 2;
+                    double innerOuter = geometry.Radii[i] + geometry.Strokes[i] / 2;
+                    double gap = outerInner - innerOuter;
+                    Assert.True(gap >= minGap,
+                        $"{count} 环时第 {i} 与 {i + 1} 圈的净间隙只有 {gap:0.00}px，低于下限 {minGap}");
+                }
+            }
+        }
+
+        [Test]
+        public static void RingsFitInside24PxCanvas()
+        {
+            // 24px 画布中心 12，外沿不能超出（留抗锯齿余量）
+            for (int count = 1; count <= 3; count++)
+            {
+                var geometry = UI.RingGeometry.ForCount(count);
+                double outerEdge = geometry.Radii[0] + geometry.Strokes[0] / 2;
+                Assert.True(outerEdge <= 12.0,
+                    $"{count} 环外沿 {outerEdge:0.00} 超出 24px 画布半宽 12");
+            }
+        }
+    }
+
     public static class PaletteTests
     {
         [Test]

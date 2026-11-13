@@ -9,8 +9,8 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](#授权)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
-[![Size](https://img.shields.io/badge/single%20exe-492%20KB-blue?style=flat-square)](#性能)
-[![Tests](https://img.shields.io/badge/tests-218%20passed-success?style=flat-square)](#测试)
+[![Size](https://img.shields.io/badge/single%20exe-493%20KB-blue?style=flat-square)](#性能)
+[![Tests](https://img.shields.io/badge/tests-225%20passed-success?style=flat-square)](#测试)
 [![Devices](https://img.shields.io/badge/devices-60%2B%20models-informational?style=flat-square)](#兼容性)
 
 <img src="assets/tray-taskbar.svg" width="680" alt="外设电量 —— 任务栏托盘图标（三环）与放大特写">
@@ -99,8 +99,8 @@ Windows 自带的蓝牙电量只在「设置 → 蓝牙」里，一关窗口就�
 
 ## 托盘图标
 
-托盘上只有**一个**图标：同心环，按启用顺序由外到内排列
-（默认三台：外环鼠标、中环耳机、内环键盘）。
+托盘上只有**一个**图标：同心环，**环数 = 当前设备数**
+（一台就只画一圈，占满图标；最多三圈）。
 每圈按电量描弧 —— 满圈是 100%，半圈是 50%；离线设备只留极淡的轨道。
 
 <p align="center"><img src="assets/tray-states.svg" width="880" alt="托盘图标各状态"></p>
@@ -468,7 +468,7 @@ dotnet run --project src\PeripheralBattery.csproj -- --preview card.png line 168
 dotnet run --project tests\PeripheralBattery.Tests.csproj
 ```
 
-**218 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
+**225 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
 `tests/Harness.cs` 里 60 行手写运行器就够，`Main` 返回非 0 表示失败。
 
 覆盖面：
@@ -486,7 +486,7 @@ dotnet run --project tests\PeripheralBattery.Tests.csproj
 
 | 指标 | 数值 |
 |---|---|
-| 单文件 exe | 492 KB（framework-dependent） |
+| 单文件 exe | 493 KB（framework-dependent） |
 | 运行时代码 | 约 9,100 行（25 个文件） |
 | 内存占用 | 私有约 39 MB / 工作集约 94 MB（WPF + 亚克力实测） |
 | 罗技读取 | ~130 ms（含两遍槽位探测） |

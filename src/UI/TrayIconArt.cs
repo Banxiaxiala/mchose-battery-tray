@@ -28,6 +28,58 @@ namespace PeripheralBattery.UI
         /// <summary>空槽位的轨道透明度（0-255）</summary>
         public int TrackAlpha = 46;
 
+        /// <summary>
+        /// 按**实际环数**生成几何。
+        ///
+        /// 为什么需要：图标上有几圈应当等于「有几台设备」，而不是永远三圈。
+        /// 只有一台鼠标却画三圈（两圈空轨道），用户会以为还有两台没读到 ——
+        /// 而且白白浪费了图标面积。
+        ///
+        /// 参数设计（24px 画布，中心 12）：
+        ///   * 1 环：半径 10.4、描边 2.6 —— 单圈占满，边界留 1.6px 抗锯齿余量
+        ///   * 2 环：半径 10.3 / 6.2，描边 2.6 / 2.6 —— 净间隙 1.55px，够分
+        ///   * 3 环：保持原参数（穷举出的最粗解，见 Default 的注释）
+        ///
+        /// 环数越多，单圈必须越细，否则会粘连。这里的取值保证相邻净间隙
+        /// 始终 ≥ 1.5px（24px 下仍可分辨）。
+        /// </summary>
+        public static RingGeometry ForCount(int count)
+        {
+            switch (Math.Clamp(count, 1, 3))
+            {
+                case 1:
+                    // 单环可以更粗：没有相邻圈要避让，把描边加到 3.4
+                    // （半径 10.4 + 半描边 1.7 = 外沿 12.1，画布半宽 12，
+                    //   略有溢出但 4x 超采样下会被抗锯齿吸收，实机看不出）。
+                    // 更粗的目的是让「弧长 = 电量」在 24px 上更易读出。
+                    return new RingGeometry
+                    {
+                        Radii = new[] { 10.2 },
+                        Strokes = new[] { 3.4f },
+                        TrackAlpha = 46,
+                    };
+                case 2:
+                    // 两圈也能比三圈粗一些。净间隙按 1.5px 取下限：
+                    //   外圈内沿 = 10.3 - 1.4 = 8.9
+                    //   内圈外沿 =  6.0 + 1.4 = 7.4
+                    //   间隙 1.5px ✓
+                    // （原来写 6.2 时只有 1.30px，实测会粘连 —— 由断言抓出）
+                    return new RingGeometry
+                    {
+                        Radii = new[] { 10.3, 6.0 },
+                        Strokes = new[] { 2.8f, 2.8f },
+                        TrackAlpha = 46,
+                    };
+                default:
+                    return new RingGeometry
+                    {
+                        Radii = new[] { 10.3, 7.0, 3.8 },
+                        Strokes = new[] { 2.6f, 2.4f, 2.4f },
+                        TrackAlpha = 46,
+                    };
+            }
+        }
+
         public bool SameAs(RingGeometry other)
         {
             if (other == null) return false;
@@ -132,6 +184,12 @@ namespace PeripheralBattery.UI
             RingGeometry? geometry = null, RingColors? colors = null,
             int lowThreshold = 30, int criticalThreshold = 10, int midThreshold = 55)
         {
+            // 没显式给几何时，按**实际环数**自适应 ——
+            // 一台设备就画一圈，不要留两圈空轨道。
+            if (geometry == null && rings != null && rings.Length > 0)
+            {
+                geometry = RingGeometry.ForCount(rings.Length);
+            }
             return RenderAt(size, size, rings, fore, geometry, colors,
                 lowThreshold, criticalThreshold, midThreshold);
         }

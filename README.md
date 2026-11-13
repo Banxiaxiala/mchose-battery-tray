@@ -2,14 +2,16 @@
 
 # 外设电量 · Peripheral Battery
 
-**一个托盘图标，盯住三台无线外设的电量。**<br>
-罗技 LIGHTSPEED 鼠标 · 雷蛇耳机 · 维咖 MAX102 键盘 —— 2.4G 与蓝牙双通道自动切换。
+**一个托盘图标，盯住所有无线外设的电量。**<br>
+罗技 HID++ · 雷蛇 PA/PI · VIA/QMK 键盘 · 任意蓝牙外设 —— 私有协议优先，失败自动回落系统 API。
 
 [![Platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=flat-square&logo=windows&logoColor=white)](#构建)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](#授权)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
-[![Size](https://img.shields.io/badge/single%20exe-425%20KB-blue?style=flat-square)](#性能)
+[![Size](https://img.shields.io/badge/single%20exe-457%20KB-blue?style=flat-square)](#性能)
 [![Tests](https://img.shields.io/badge/tests-154%20passed-success?style=flat-square)](#测试)
+[![Devices](https://img.shields.io/badge/devices-60%2B%20models-informational?style=flat-square)](#兼容性)
 
 <img src="assets/screens/line-24h.png" width="300" alt="外设电量卡片 —— 折线图视图">
 
@@ -36,26 +38,32 @@
 - [设计约束](#设计约束)
 - [已知限制](#已知限制)
 - [文档](#文档)
+- [授权](#授权)
 
 ---
 
 ## 它解决什么问题
 
 Windows 自带的蓝牙电量只在「设置 → 蓝牙」里，一关窗口就看不见；2.4G 接收器的
-设备电量则压根没有系统 UI。三台外设各查一遍，实际使用中没人会这么做。
+设备电量则压根没有系统 UI。多台外设各查一遍，实际使用中没人会这么做。
 
-这个工具把**鼠标、耳机、键盘**的电量收进一个托盘图标，左键单击展开卡片看
-24 小时历史与续航预测。设备离线、丢帧、固件读不到时，它如实告诉你原因，
+这个工具把**鼠标、耳机、键盘、手柄**的电量收进一个托盘图标，左键单击展开
+卡片看历史与续航预测。设备离线、丢帧、固件读不到时，它如实告诉你原因，
 而不是显示一个看起来正常但其实是假的百分比。
+
+支持的协议与型号见 [兼容性](#兼容性) —— 按**证据等级**分级：
+哪些是作者每天在用的实测型号，哪些只是「同协议族、未验证」，
+一眼能分清。
 
 ## 功能
 
 | | 能力 | 说明 |
 |---|---|---|
-| 🎯 | **单图标三设备** | 三圈同心环，外环鼠标 / 中环耳机 / 内环键盘；槽位稳定，离线不换圈 |
+| 🎯 | **单图标多设备** | 同心环按启用顺序排列；关掉中间那台设备，环位自动补位，不留空洞 |
 | 📊 | **柱状 + 折线双视图** | 柱状看每小时分布，折线看长期趋势；两者共用 24h / 7d / 30d / 1y / 2y 时间轴 |
 | 🔋 | **续航预测** | 按 24 小时放电斜率估算剩余时间，附置信度与前 24 小时区间 |
-| 🔀 | **2.4G / 蓝牙自动降级** | 私有协议优先，失败回落系统 API；不从设备读不到就编数字 |
+| 🔀 | **多通道自动降级** | 私有协议优先，失败回落系统 API；读不到就如实报错，不编数字 |
+| 🧩 | **设备表驱动** | 加型号只改一张表或一个 `devices.json`，不动任何代码 |
 | 🪟 | **亚克力卡片** | DWM 硬件级毛玻璃 + 真圆角；系统不支持时自动退回不透明底板 |
 | 🎨 | **跟随系统主题** | 浅色 / 深色自动切换，阈值配色可自定义 |
 | 🔔 | **低电量提醒** | 任意设备 ≤10% 弹一次通知，回充后复位 |
@@ -88,7 +96,8 @@ Windows 自带的蓝牙电量只在「设置 → 蓝牙」里，一关窗口就�
 
 ## 托盘图标
 
-托盘上只有**一个**图标：三圈同心环，外环鼠标、中环耳机、内环键盘。
+托盘上只有**一个**图标：同心环，按启用顺序由外到内排列
+（默认三台：外环鼠标、中环耳机、内环键盘）。
 每圈按电量描弧 —— 满圈是 100%，半圈是 50%；离线设备只留极淡的轨道。
 
 <p align="center"><img src="assets/tray-states.svg" width="880" alt="托盘图标各状态"></p>
@@ -465,9 +474,9 @@ dotnet run --project tests\PeripheralBattery.Tests.csproj
 
 | 指标 | 数值 |
 |---|---|
-| 单文件 exe | 425 KB（framework-dependent） |
+| 单文件 exe | 457 KB（framework-dependent） |
 | 运行时代码 | 约 9,100 行（25 个文件） |
-| 内存占用 | 私有约 53 MB / 工作集约 111 MB（WPF + 亚克力实测） |
+| 内存占用 | 私有约 39 MB / 工作集约 94 MB（WPF + 亚克力实测） |
 | 罗技读取 | ~130 ms（含两遍槽位探测） |
 | 雷蛇 2.4G / 蓝牙 | ~55 ms / ~8 ms |
 | 维咖 VIA / 蓝牙 | ~30 ms / ~5 ms |
@@ -475,7 +484,9 @@ dotnet run --project tests\PeripheralBattery.Tests.csproj
 | 空槽位排除 | ~6 ms/槽位 |
 
 读取在 UI 线程同步执行。一次完整刷新约 200 ms，三台设备都在时仍然可接受；
-如果将来加更多设备，需要改成后台线程 + 结果回投。
+**设备多了会线性叠加** —— 因为未接的设备也会走一遍超时探测。
+这是当前最该改的性能点：正确做法是后台线程 + 结果回投，
+并让「已关闭」的设备完全不参与（这一条已经实现）。
 
 ## 设计约束
 

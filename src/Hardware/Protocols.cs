@@ -92,10 +92,36 @@ namespace PeripheralBattery.Hardware
         public const byte RazerCmdCharging = 0x2A;
         public const byte RazerCmdAutoPowerOff = 0x2C;
 
+        /// <summary>
+        /// 雷蛇 PID → 型号名。**只影响显示文案，不影响能不能读到电量。**
+        ///
+        /// 表里没有的 PID 会走兜底（读 product_string，失败则显示
+        /// 「Razer 无线设备」），所以漏掉某个型号不会导致读不到 ——
+        /// 这正是它敢只列已知型号的原因。
+        ///
+        /// 数据来源：FerrisPulse 的兼容矩阵 + 本仓库实测。
+        /// 分三档（见 docs/COMPATIBILITY.md）：
+        ///   🟢 本仓库真机实测
+        ///   🟡 同协议族，PID 来自公开仓库
+        /// 未标注的 PID 不要往这里加 —— 猜出来的型号名比「未知设备」更糟，
+        /// 用户会以为自己买到了假货。
+        /// </summary>
         private static readonly Dictionary<int, string> RazerModelNames = new()
         {
-            [0x0555] = "BlackShark V2 Pro",
-            [0x056C] = "Kraken V4",
+            // ---- 🟢 实测 ----
+            [0x0555] = "BlackShark V2 Pro",     // 旋风黑鲨 2.4G (2023)，耳机
+
+            // ---- 🟡 同协议族（PA/PI），PID 来自 FerrisPulse 公开矩阵 ----
+            [0x056C] = "Kraken V4",             // 北海巨妖 V4
+            [0x00BE] = "DeathAdder V4 Pro",
+            [0x00EF] = "DeathAdder V4 Pro Carbon",
+            [0x00E5] = "Viper V4 Pro",
+            [0x00B8] = "Viper V3 HyperSpeed",
+            [0x00A6] = "Viper V2 Pro",
+            [0x00A5] = "Viper V2 Pro (White)",
+            [0x009C] = "DeathAdder V2 X HyperSpeed",
+            [0x0086] = "Basilisk Ultimate",
+            [0x0088] = "Basilisk Ultimate (Alt)",
         };
 
         // ============================================================ 维咖 VIA
@@ -614,7 +640,7 @@ namespace PeripheralBattery.Hardware
             }
             return RazerModelNames.TryGetValue(productId, out var fallback)
                 ? fallback
-                : "Razer 无线耳机";
+                : "Razer 无线设备";
         }
 
         /// <summary>
@@ -629,7 +655,7 @@ namespace PeripheralBattery.Hardware
         public static string RazerModelNameFromBluetooth(string? friendlyName)
         {
             string name = (friendlyName ?? "").Trim();
-            if (name.Length == 0) return "Razer 无线耳机";
+            if (name.Length == 0) return "Razer 无线设备";
 
             // 服务后缀：先砍掉，否则 "BT Hands-Free" 会粘连到型号里
             foreach (string suffix in BluetoothServiceSuffixes)
@@ -655,7 +681,7 @@ namespace PeripheralBattery.Hardware
                 name = name.Substring(0, name.Length - 3).Trim();
             }
 
-            return name.Length > 0 ? name : "Razer 无线耳机";
+            return name.Length > 0 ? name : "Razer 无线设备";
         }
 
         /// <summary>蓝牙友好名里的服务名后缀（长串优先匹配）</summary>

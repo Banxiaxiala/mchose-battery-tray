@@ -199,8 +199,16 @@ namespace PeripheralBattery.Tests
                 Protocols.RazerModelName("Razer BlackShark V2 Pro 2.4", 0x0555), "剥前缀与后缀");
             Assert.Equal("BlackShark V2 Pro",
                 Protocols.RazerModelName("", 0x0555), "空字符串走兜底表");
-            Assert.Equal("Razer 无线耳机",
+            // 兜底文案是「无线设备」而不是「无线耳机」：PA/PI 同族还包括鼠标
+            // （DeathAdder / Viper / Basilisk），说成耳机会让鼠标用户以为认错了设备。
+            Assert.Equal("Razer 无线设备",
                 Protocols.RazerModelName("HID Device", 0xFFFF), "未知机型");
+
+            // 型号表里的 🟡 项：PID 命中就直接给可读名字
+            Assert.Equal("Kraken V4",
+                Protocols.RazerModelName("HID Device", 0x056C), "表内已知 PID");
+            Assert.Equal("Viper V3 HyperSpeed",
+                Protocols.RazerModelName("", 0x00B8), "表内鼠标 PID");
         }
 
         // ============================================================ 维咖 VIA
@@ -395,9 +403,9 @@ namespace PeripheralBattery.Tests
             Assert.Equal("Kraken V4",
                 Protocols.RazerModelNameFromBluetooth("Razer Kraken V4 Hands-Free AG"),
                 "没有 BT 尾巴");
-            Assert.Equal("Razer 无线耳机",
+            Assert.Equal("Razer 无线设备",
                 Protocols.RazerModelNameFromBluetooth(""), "空名走兜底");
-            Assert.Equal("Razer 无线耳机",
+            Assert.Equal("Razer 无线设备",
                 Protocols.RazerModelNameFromBluetooth("Razer"), "只留品牌名时也要兜底");
         }
 

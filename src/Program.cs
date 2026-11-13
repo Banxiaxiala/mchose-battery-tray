@@ -753,6 +753,17 @@ namespace PeripheralBattery
                 if (reading.Charging) state += "（充电中）";
                 Console.WriteLine("    状态    " + state);
                 Console.WriteLine("    在线    " + (reading.Connected ? "是" : "否"));
+
+                // 附上协议链，便于报 issue 时说明「走的是哪条通道」。
+                // 兼容性矩阵里的等级就是按通道划分的，没有这行就没法定位。
+                var definition = DeviceCatalog.FindBuiltIn(slot.HistoryKey);
+                if (definition != null)
+                {
+                    foreach (var channel in definition.Channels)
+                    {
+                        Console.WriteLine("    通道    " + channel.Describe());
+                    }
+                }
             }
             catch (Exception exc)
             {

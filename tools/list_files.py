@@ -64,7 +64,7 @@ def main():
     required = [
         "README.md",
         "docs/README.md", "docs/ARCHITECTURE.md", "docs/AGENTS.md",
-        "docs/HANDOVER.md",
+        "docs/HANDOVER.md", "docs/COMPATIBILITY.md",
         "build.bat", ".gitignore",
         "src/PeripheralBattery.csproj",
         "src/Program.cs",

@@ -27,6 +27,7 @@
 - [工作原理](#工作原理)
 - [历史数据](#历史数据)
 - [设备管理](#设备管理)
+- [兼容性](#兼容性)
 - [添加设备型号](#添加设备型号)
 - [便携模式](#便携模式)
 - [构建](#构建)
@@ -207,6 +208,82 @@ Program  →  UI  →  Services  →  Hardware  →  Core  →  Models
 设置项落在 `settings.json` 的 `disabled_devices`（存 history key 而不是显示名，
 因为名字会改，key 是稳定的文件标识）。手改配置留下空串或重复项时，
 `Sanitize()` 会清掉。
+
+## 兼容性
+
+设备清单按**证据等级**分层，不把「协议理论上支持」写成「已验证」：
+
+| 等级 | 含义 |
+|:---:|---|
+| 🟢 **实测** | 作者每天在用，型号 / 电量 / 充电全部验证 |
+| 🟡 **协议族兼容** | 同一协议同一报文格式，协议层有断言，但没在真机验证这个型号 |
+| 🔵 **仅蓝牙** | 只有系统电量属性可用，拿不到充电状态 |
+| ⚪ **未测试** | 型号存在、协议对得上，但没有任何证据 |
+
+### 实测（🟢）
+
+| 设备 | VID:PID | 通道 |
+|---|---|---|
+| 罗技 PRO X 2（G PRO X SUPERLIGHT 2） | `046D:C54D` | HID++ 2.0 |
+| 罗技 G304 / G102 Lightspeed | `046D:C53F` | HID++ 2.0 |
+| 雷蛇 BlackShark V2 Pro（旋风黑鲨 2.4G 2023） | `1532:0555` | PA/PI 2.4G + 蓝牙 |
+| 维咖 MAX102 | `342D:E537` | VIA `cmd 20` + 蓝牙 |
+
+### 协议族兼容（🟡）
+
+<details>
+<summary><b>罗技 LIGHTSPEED</b> —— 走 HID++ 2.0 标准电量特性链（展开）</summary>
+
+`0x1004` UNIFIED_BATTERY → `0x1000` BATTERY_STATUS → `0x1001` BATTERY_VOLTAGE
+
+| 型号 | VID:PID |
+|---|---|
+| G502 X PLUS | `046D:C095` |
+| G502 LIGHTSPEED | `046D:C539` |
+| G PRO X Wireless 耳机 | `046D:0ABA` |
+| G703 / G903 / G604 / G603 | `046D:C539` 族 |
+| G913 / G915 / G515 TKL | — |
+
+> 罗技这条链是**官方规范**，支持 HID++ 2.0 的设备理论上都能读。
+> 罗技还会用 `0x0005` 特性自报真名，所以型号名不依赖 PID 表。
+</details>
+
+<details>
+<summary><b>雷蛇</b> —— 走 PA/PI 64 字节中断报文（展开）</summary>
+
+| 型号 | VID:PID |
+|---|---|
+| Kraken V4（北海巨妖 V4） | `1532:056C` |
+| DeathAdder V4 Pro / Carbon | `1532:00BE` / `00EF` |
+| Viper V4 Pro | `1532:00E5` |
+| Viper V3 HyperSpeed | `1532:00B8` |
+| Viper V2 Pro | `1532:00A6` / `00A5` |
+| DeathAdder V2 X HyperSpeed | `1532:009C` |
+| Basilisk Ultimate | `1532:0086` / `0088` |
+
+这些 PID 来自 [FerrisPulse](https://github.com/Ferris-echo/FerrisPulse) 的公开
+实测矩阵，已写入型号表；**电量命令的语义未在本仓库验证**。
+</details>
+
+<details>
+<summary><b>QMK / VIA 键盘</b> —— 需要 `cmd 20` 电量补丁（展开）</summary>
+
+`cmd 20 (0x14)` 是**补丁命令**，不是 QMK 标准功能。原厂固件回 `0xFF`，
+本程序会如实报「固件没有电量补丁」，绝不显示 0%。补丁参考
+[weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re)。
+</details>
+
+### 通用蓝牙（🔵）
+
+**任意品牌**已配对、且 Windows「设置 → 蓝牙」里显示百分比的外设都能读 ——
+读的是系统属性 `{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2`，不走厂商协议。
+耳机走 `BTHENUM` 音频服务节点，键鼠走 `BTHLE`。
+
+固有局限：**拿不到充电状态**、电量是系统缓存的（离线后仍保留旧值）、
+按名字前缀匹配设备。
+
+> 📋 完整矩阵（含未测试型号、每个通道的限制、数据来源）
+> 见 **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**。
 
 ## 添加设备型号
 

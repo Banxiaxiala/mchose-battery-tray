@@ -51,14 +51,35 @@
 
 | 型号 | VID:PID | 等级 | 备注 |
 |---|---|:---:|---|
-| BlackShark V2 Pro（旋风黑鲨 2.4G, 2023） | `1532:0555` | 🟢 | 本项目作者主力设备，2.4G 与蓝牙都实测 |
-| Kraken V4（北海巨妖 V4） | `1532:056C` | 🟡 | PID 已入型号表；PA/PI 同族 |
-| DeathAdder V4 Pro / Carbon | `1532:00BE` / `00EF` | ⚪ | 鼠标，PA/PI 支持但未验证电量命令 |
-| Viper V4 Pro | `1532:00E5` | ⚪ | 同上 |
-| Viper V3 HyperSpeed | `1532:00B8` | ⚪ | 同上 |
-| Viper V2 Pro | `1532:00A6` / `00A5` | ⚪ | 同上 |
-| DeathAdder V2 X HyperSpeed | `1532:009C` | ⚪ | 同上 |
-| Basilisk Ultimate | `1532:0086` / `0088` | ⚪ | 同上 |
+| **BlackShark V2 Pro**（旋风黑鲨 2.4G, 2023） | `1532:0555` | 🟢 | 作者主力，2.4G + 蓝牙均实测 |
+| **Kraken V4**（北海巨妖 V4） | `1532:056C` | 🟡 | PID 已入表；PA/PI 同族 |
+| DeathAdder V4 Pro / Carbon | `1532:00BE` / `00EF` | 🟡 | |
+| DeathAdder V3 Pro / HyperSpeed | `1532:00B6` / `00C4` | 🟡 | |
+| DeathAdder V2 Pro / V2 X HyperSpeed | `1532:007C` / `009C` | 🟡 | |
+| Viper V4 Pro / V3 Pro / V3 Pro SE | `1532:00E5` / `00C0` / `00DE` | 🟡 | |
+| Viper V3 HyperSpeed / V2 Pro / Mini SE | `1532:00B8` / `00A5` / `009E` | 🟡 | |
+| Viper Ultimate | `1532:007A` | 🟡 | |
+| Basilisk V3 Pro / 35K / Phantom Green | `1532:00AA` / `00CC` / `00D6` | 🟡 | |
+| Basilisk V3 X HyperSpeed / X HyperSpeed | `1532:00B9` / `0083` | 🟡 | |
+| Basilisk Ultimate / Mobile | `1532:0086` / `00D3` | 🟡 | |
+| Naga V2 Pro / V2 HyperSpeed / Pro / Epic | `1532:00A7` / `00B4` / `008F` / `001F` | 🟡 | |
+| Naga Epic Chroma | `1532:003E` | 🟡 | |
+| Mamba / Mamba Chroma / Mamba 2012 | `1532:0073` / `0045` / `0025` | 🟡 | |
+| Lancehead / Wireless | `1532:0059` / `0070` | 🟡 | |
+| Cobra Pro / HyperSpeed | `1532:00AF` / `00DA` | 🟡 | |
+| Orochi V2 / Ouroboros | `1532:0094` / `0032` | 🟡 | |
+| Atheris | `1532:0062` | 🟡 | |
+| Pro Click / Mini / V2 / V2 Vertical | `1532:0077` / `009A` / `00D0` / `00C7` | 🟡 | |
+| HyperPolling Wireless Dongle | `1532:00B3` | 🟡 | 8K 接收器；会转发设备的电量 |
+
+共 45 个 PID 已入型号表（`Protocols.RazerModelNames`），
+来源是 [OpenRazer](https://github.com/openrazer/openrazer) 的
+`daemon/openrazer_daemon/hardware/{mouse,headsets}.py` ——
+它维护的雷蛇 PID 清单是目前公开最全的。
+
+> **型号表只决定显示的名字，不决定能不能读。**
+> 表里没有的 PID 会先读 `product_string`，读不到就显示「Razer 无线设备」，
+> 电量照读不误。所以漏型号 ≠ 读不到，这也是这张表可以「宁缺勿错」的前提。
 
 > ⚠️ **雷蛇的鼠标与耳机共用 PA/PI 报文，但 `0x21` 电量命令的语义在部分固件上
 > 有差异。** 鼠标读不到时通常回 `0xFF`，本程序会如实报「电量查询无应答」
@@ -155,8 +176,12 @@
 
 表格里的 VID/PID 来自这些公开仓库，不是猜的：
 
+- [openrazer/openrazer](https://github.com/openrazer/openrazer) ——
+  雷蛇 PID 清单（`daemon/openrazer_daemon/hardware/`），公开最全的一份；
+  本文档的 40+ 个雷蛇 PID 来自这里
 - [Ferris-echo/FerrisPulse](https://github.com/Ferris-echo/FerrisPulse) ——
-  雷蛇 PA/PI、罗技 HID++、雷柏/瓦尔基里等品牌的实测型号与 PID
+  雷蛇 PA/PI、罗技 HID++、雷柏/瓦尔基里等品牌的实测型号与 PID；
+  以及「哪些型号的 get_battery 实际被 daemon 支持」的交叉验证
 - [yixing233/logi-tray](https://github.com/yixing233/logi-tray) ——
   罗技 HID++ 2.0 的两遍槽位探测与电量特性回退链
 - [Banxiaxiala/weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re) ——

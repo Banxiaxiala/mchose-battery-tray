@@ -75,6 +75,47 @@ namespace PeripheralBattery.Tests
             }
         }
 
+        // ============================================================ 雷蛇型号表
+        //
+        // 型号表只影响显示文案，不影响能不能读到电量。所以它的正确性标准是：
+        //   * 已实测的型号必须在表里（不能退化成「Razer 无线设备」）
+        //   * 未收录的 PID 必须能安全兜底，不许抛异常或显示空串
+
+        [Test]
+        public static void MeasuredRazerModelsAreNamed()
+        {
+            // 0x0555 是本仓库真机实测的耳机，退化成兜底文案就是回归
+            Assert.Equal("BlackShark V2 Pro",
+                Protocols.RazerModelName("", 0x0555), "实测耳机型号名");
+            Assert.Equal("Kraken V4",
+                Protocols.RazerModelName("", 0x056C), "同族耳机");
+        }
+
+        [Test]
+        public static void UnknownRazerPidFallsBackSafely()
+        {
+            // 未收录的 PID 必须给一个通用但准确的文案。
+            // 「无线设备」而不是「无线耳机」：PA/PI 同族还包括鼠标键盘。
+            Assert.Equal("Razer 无线设备",
+                Protocols.RazerModelName("", 0xFFFF), "未知 PID 兜底");
+            Assert.Equal("Razer 无线设备",
+                Protocols.RazerModelName("HID-compliant device", 0xFFFF),
+                "product_string 是通用描述时也要兜底");
+        }
+
+        [Test]
+        public static void ModelTableCoversBothMiceAndHeadsets()
+        {
+            // 只收录耳机是早期状态；模型表现在同时覆盖鼠标。
+            // 这里抽查几个不同世代的 PID，防止有人「清理」掉看起来没用的条目。
+            Assert.Equal("DeathAdder V2 Pro",
+                Protocols.RazerModelName("", 0x007C), "老款无线鼠标");
+            Assert.Equal("Naga Epic",
+                Protocols.RazerModelName("", 0x001F), "最老的一批");
+            Assert.Equal("HyperPolling Wireless Dongle",
+                Protocols.RazerModelName("", 0x00B3), "8K 接收器");
+        }
+
         // ============================================================ 协议名解析
 
         [Test]

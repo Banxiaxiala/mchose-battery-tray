@@ -209,6 +209,15 @@ namespace PeripheralBattery.Tests
                 Protocols.RazerModelName("HID Device", 0x056C), "表内已知 PID");
             Assert.Equal("Viper V3 HyperSpeed",
                 Protocols.RazerModelName("", 0x00B8), "表内鼠标 PID");
+            Assert.Equal("DeathAdder V4 Pro",
+                Protocols.RazerModelName("", 0x00BE), "表内鼠标 PID");
+            Assert.Equal("Basilisk V3 Pro 35K",
+                Protocols.RazerModelName("", 0x00CC), "带数字后缀的型号名");
+
+            // product_string 优先于型号表：官方自报的名字永远比我们猜的准
+            Assert.Equal("My Custom Name",
+                Protocols.RazerModelName("Razer My Custom Name", 0x00B8),
+                "设备自报的名字要覆盖型号表");
         }
 
         // ============================================================ 维咖 VIA

@@ -249,20 +249,21 @@ Program  →  UI  →  Services  →  Hardware  →  Core  →  Models
 </details>
 
 <details>
-<summary><b>雷蛇</b> —— 走 PA/PI 64 字节中断报文（展开）</summary>
+<summary><b>雷蛇</b> —— 走 PA/PI 64 字节中断报文（45 个 PID 已入表）</summary>
 
-| 型号 | VID:PID |
-|---|---|
-| Kraken V4（北海巨妖 V4） | `1532:056C` |
-| DeathAdder V4 Pro / Carbon | `1532:00BE` / `00EF` |
-| Viper V4 Pro | `1532:00E5` |
-| Viper V3 HyperSpeed | `1532:00B8` |
-| Viper V2 Pro | `1532:00A6` / `00A5` |
-| DeathAdder V2 X HyperSpeed | `1532:009C` |
-| Basilisk Ultimate | `1532:0086` / `0088` |
+耳机：Kraken V4 `056C`、Kraken 7.1 系列 `0501/0504/0506/0510/0520/0527`、
+Kraken Kitty `0F19/0560`
 
-这些 PID 来自 [FerrisPulse](https://github.com/Ferris-echo/FerrisPulse) 的公开
-实测矩阵，已写入型号表；**电量命令的语义未在本仓库验证**。
+鼠标（部分）：DeathAdder V4 Pro `00BE`/`00EF`、V3 Pro `00B6`、V2 Pro `007C`、
+V2 X HyperSpeed `009C`、Viper V4 Pro `00E5`、V3 Pro `00C0`、V3 HyperSpeed `00B8`、
+V2 Pro `00A5`、Basilisk V3 Pro `00AA`/`00CC`/`00D6`、Naga V2 Pro `00A7`、
+Mamba `0073`、Lancehead `0059`/`0070`、Cobra `00AF`/`00DA`、
+Orochi V2 `0094`、Pro Click `0077`/`009A`/`00D0`、HyperPolling Dongle `00B3`
+
+PID 来自 [OpenRazer](https://github.com/openrazer/openrazer) 的公开设备清单，
+**电量命令的语义未在本仓库逐个验证**。型号表只决定显示的名字 ——
+表里没有的 PID 会读 `product_string`，读不到就显示「Razer 无线设备」，
+电量照读不误。
 </details>
 
 <details>

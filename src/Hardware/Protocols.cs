@@ -108,20 +108,56 @@ namespace PeripheralBattery.Hardware
         /// </summary>
         private static readonly Dictionary<int, string> RazerModelNames = new()
         {
-            // ---- 🟢 实测 ----
-            [0x0555] = "BlackShark V2 Pro",     // 旋风黑鲨 2.4G (2023)，耳机
+            // ---- 🟢 本仓库真机实测 ----
+            [0x0555] = "BlackShark V2 Pro",         // 旋风黑鲨 2.4G (2023)，耳机
 
-            // ---- 🟡 同协议族（PA/PI），PID 来自 FerrisPulse 公开矩阵 ----
-            [0x056C] = "Kraken V4",             // 北海巨妖 V4
+            // ---- 🟡 同协议族，PID 来自 OpenRazer / FerrisPulse 公开清单 ----
+            // 表里没有的 PID 会走兜底：先读 product_string，读不到就显示
+            // 「Razer 无线设备」。所以漏掉型号不会导致读不到电量，
+            // 只是卡片上少一个型号名 —— 这是这张表可以「宁缺勿错」的前提。
+            [0x001F] = "Naga Epic",
+            [0x0024] = "Mamba 2012",
+            [0x0025] = "Mamba 2012 (Wireless)",
+            [0x0032] = "Ouroboros",
+            [0x003E] = "Naga Epic Chroma",
+            [0x0044] = "Mamba Chroma",
+            [0x0045] = "Mamba Chroma (Wireless)",
+            [0x0059] = "Lancehead",
+            [0x0062] = "Atheris",
+            [0x0070] = "Lancehead (Wireless)",
+            [0x0073] = "Mamba (Wireless)",
+            [0x0077] = "Pro Click",
+            [0x007A] = "Viper Ultimate",
+            [0x007C] = "DeathAdder V2 Pro",
+            [0x0083] = "Basilisk X HyperSpeed",
+            [0x0086] = "Basilisk Ultimate",
+            [0x008F] = "Naga Pro",
+            [0x0094] = "Orochi V2",
+            [0x009A] = "Pro Click Mini",
+            [0x009C] = "DeathAdder V2 X HyperSpeed",
+            [0x009E] = "Viper Mini SE",
+            [0x00A5] = "Viper V2 Pro",
+            [0x00A7] = "Naga V2 Pro",
+            [0x00AA] = "Basilisk V3 Pro",
+            [0x00AF] = "Cobra Pro",
+            [0x00B3] = "HyperPolling Wireless Dongle",
+            [0x00B4] = "Naga V2 HyperSpeed",
+            [0x00B6] = "DeathAdder V3 Pro",
+            [0x00B8] = "Viper V3 HyperSpeed",
+            [0x00B9] = "Basilisk V3 X HyperSpeed",
             [0x00BE] = "DeathAdder V4 Pro",
+            [0x00C0] = "Viper V3 Pro",
+            [0x00C4] = "DeathAdder V3 HyperSpeed",
+            [0x00C7] = "Pro Click V2 Vertical",
+            [0x00CC] = "Basilisk V3 Pro 35K",
+            [0x00D0] = "Pro Click V2",
+            [0x00D3] = "Basilisk Mobile",
+            [0x00D6] = "Basilisk V3 Pro 35K Phantom Green",
+            [0x00DA] = "Cobra HyperSpeed",
+            [0x00DE] = "Viper V3 Pro SE",
             [0x00EF] = "DeathAdder V4 Pro Carbon",
             [0x00E5] = "Viper V4 Pro",
-            [0x00B8] = "Viper V3 HyperSpeed",
-            [0x00A6] = "Viper V2 Pro",
-            [0x00A5] = "Viper V2 Pro (White)",
-            [0x009C] = "DeathAdder V2 X HyperSpeed",
-            [0x0086] = "Basilisk Ultimate",
-            [0x0088] = "Basilisk Ultimate (Alt)",
+            [0x056C] = "Kraken V4",                 // 耳机
         };
 
         // ============================================================ 维咖 VIA

@@ -86,6 +86,376 @@ namespace PeripheralBattery.Hardware
     }
 
     /// <summary>
+    /// 宏碁（Acer）VK M3 系列无线鼠标。
+    ///
+    /// 33 字节（report id 0x00 + 32B 载荷），`usagePage 0xFF01 / usage 0x10`：
+    ///   请求  [0]=00 [1]=10(设备信息) [2]=00
+    ///   应答  [i]=10 [i+1]=00，其中 i ∈ {0,1,2}（兼容带/不带 report id）
+    ///         [i+3]  载荷长度（必须 ≥ 11）
+    ///         [i+4..7] 设备 ID（4 个可打印 ASCII 字符）
+    ///         [i+8..9] 固件版本
+    ///         [i+12] 充电标志
+    ///         [i+13] 电量 0..100
+    ///
+    /// ⚠️ **充电时电量字段会被填成 100 当哨兵值**（实测：拔线 58%，
+    /// 插线瞬间变 100%，物理上不可能）。所以充电时若读到 100，
+    /// 应当退回最近一次非充电读数，而不是显示「充电中 100%」。
+    ///
+    /// ⚠️ 命令字节的位置要在前 3 字节里**扫描**而不是写死下标 0 ——
+    /// 带 report id 与不带的缓冲区相差一个字节，写死必然有一边读错。
+    ///
+    /// 出处：FerrisPulse AcerDeviceHelper（VID 249A / 248A，PID 5C2F）。
+    /// 本仓库未真机验证，🟡。
+    /// </summary>
+    public static class AcerProtocol
+    {
+        /// <summary>2.4G 接收器</summary>
+        public const int VendorIdWireless = 0x249A;
+        /// <summary>有线变体</summary>
+        public const int VendorIdWired = 0x248A;
+
+        public const int UsagePage = 0xFF01;
+        public const int Usage = 0x0010;
+
+        public const int ReportLength = 33;
+
+        /// <summary>设备信息查询命令</summary>
+        public const byte CommandDeviceInfo = 0x10;
+
+        /// <summary>电量相对命令字节的偏移</summary>
+        public const int BatteryOffset = 13;
+        /// <summary>充电标志相对命令字节的偏移</summary>
+        public const int ChargingOffset = 12;
+
+        /// <summary>充电时设备用这个值充当「电量」哨兵</summary>
+        public const int ChargingSentinelPercent = 100;
+
+        public static byte[] BuildInfoQuery(int length = ReportLength)
+        {
+            var frame = new byte[length];
+            frame[0] = 0x00;
+            frame[1] = CommandDeviceInfo;
+            frame[2] = 0x00;
+            return frame;
+        }
+
+        /// <summary>
+        /// 解析设备信息应答。
+        ///
+        /// 命令字节在 [0]、[1] 或 [2]（取决于缓冲区是否带 report id），
+        /// 所以前 3 个位置都要试，取第一个匹配的。
+        /// </summary>
+        public static bool TryParse(byte[]? report, out int percent,
+            out bool charging)
+        {
+            percent = -1;
+            charging = false;
+
+            if (report == null || report.Length < ReportLength) return false;
+
+            int commandIndex = -1;
+            for (int i = 0; i < 3 && i + ChargingOffset < report.Length; i++)
+            {
+                if (report[i] == CommandDeviceInfo && report[i + 1] == 0x00)
+                {
+                    commandIndex = i;
+                    break;
+                }
+            }
+            if (commandIndex < 0) return false;
+
+            int payloadLength = report[commandIndex + 3];
+            if (payloadLength < 11) return false;
+
+            // 设备 ID 必须是 4 个可打印 ASCII —— 否则这不是设备信息帧
+            for (int i = 0; i < 4; i++)
+            {
+                byte c = report[commandIndex + 4 + i];
+                if (c < 0x20 || c > 0x7E) return false;
+            }
+
+            int battery = report[commandIndex + BatteryOffset];
+            if (battery < 0 || battery > 100) return false;
+
+            percent = battery;
+            charging = report[commandIndex + ChargingOffset] != 0;
+            return true;
+        }
+
+        /// <summary>
+        /// 把「充电时读到的原始电量」换算成可展示值。
+        ///
+        /// 充电时设备会填 100 当哨兵。此时退回最近一次非充电读数；
+        /// 没有历史值就原样返回（宁可显示 100%，也不编一个假数字）。
+        /// </summary>
+        public static int ResolveDisplayed(int rawPercent, bool charging,
+            int lastRealPercent)
+        {
+            if (!charging) return rawPercent;
+            if (rawPercent >= ChargingSentinelPercent
+                && lastRealPercent >= 0
+                && lastRealPercent < ChargingSentinelPercent)
+            {
+                return lastRealPercent;
+            }
+            return rawPercent;
+        }
+    }
+
+    /// <summary>
+    /// HyperX（现属 HP）飓风3 无线耳机。
+    ///
+    /// 62 字节报文，report id 固定 `0x66`：
+    ///   请求  [0]=66 [1]=命令码，其余 0
+    ///   应答  [0]=66 [1]=响应码 [2][3]=状态位 [4]=电量
+    ///
+    /// 三条独立命令（各发一次）：
+    ///   `0x82` → `0x0B` 连接状态
+    ///   `0x89` → `0x0D` 电量（[4]）
+    ///   `0x8A` → `0x0C` 充电状态
+    ///
+    /// ⚠️ 必须排除 `0x06BE`（飓风3S）—— 它的报文协议不同，
+    /// 套这套解析会读出垃圾。实测排除项写在这里，不要「顺手」加回来。
+    ///
+    /// 出处：FerrisPulse HyperXDeviceHelper。
+    /// 本仓库未真机验证，🟡。
+    /// </summary>
+    public static class HyperXProtocol
+    {
+        /// <summary>HP Inc.（HyperX 现属 HP）</summary>
+        public const int VendorId = 0x03F0;
+
+        /// <summary>飓风3 无线接收器</summary>
+        public const int PidCloud3 = 0x05B7;
+        /// <summary>飓风3 无线接收器（批次变体）</summary>
+        public const int PidCloud3Alt = 0x0C9D;
+
+        public const byte ReportId = 0x66;
+        public const int PacketLength = 62;
+
+        public const byte CmdGetConnected = 0x82;
+        public const byte CmdGetBattery = 0x89;
+        public const byte CmdGetCharging = 0x8A;
+
+        public const byte RspConnected = 0x0B;
+        public const byte RspBattery = 0x0D;
+        public const byte RspCharging = 0x0C;
+
+        /// <summary>电量字段偏移</summary>
+        public const int OffsetLevel = 4;
+
+        /// <summary>构造查询帧</summary>
+        public static byte[] BuildQuery(byte command)
+        {
+            var frame = new byte[PacketLength];
+            frame[0] = ReportId;
+            frame[1] = command;
+            return frame;
+        }
+
+        /// <summary>应答的响应码是否匹配预期</summary>
+        public static bool IsReply(byte[]? report, byte expectedResponse)
+        {
+            if (report == null || report.Length < PacketLength - 1) return false;
+            if (report[0] != ReportId) return false;
+            return report[1] == expectedResponse;
+        }
+
+        /// <summary>解析电量（响应码 0x0D，电量在 [4]）</summary>
+        public static bool TryParseBattery(byte[]? report, out int percent)
+        {
+            percent = -1;
+            if (!IsReply(report, RspBattery)) return false;
+            int value = report![OffsetLevel];
+            if (value > 100) return false;
+            percent = value;
+            return true;
+        }
+
+        /// <summary>解析充电状态（响应码 0x0C）</summary>
+        public static bool TryParseCharging(byte[]? report, out bool charging)
+        {
+            charging = false;
+            if (!IsReply(report, RspCharging)) return false;
+            int value = report![OffsetLevel];
+            if (value > 1) return false;
+            charging = value == 1;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 盖世小鸡（GameSir）启明星2 手柄。
+    ///
+    /// 65 字节报告，`usagePage 0xFF7A / usage 1`：
+    ///   请求  [0]=00 [1]=01 [2]=01，其余 0
+    ///   应答  [0]=00 [1]=01 [2..7]=设备标识（非全零才算有效）
+    ///         [19]=电量 0..100，或 **255 表示"正在充电但固件不给百分比"**
+    ///
+    /// ⚠️ 255 这个哨兵值必须特殊处理：它不是电量，是「充电中但读不到数」。
+    /// 当成 100% 会误导用户（以为充满），当成 0% 会误报低电量。
+    /// 正确做法是：保持上一次的百分比，状态标「正在充电」。
+    ///
+    /// 出处：FerrisPulse GameSirDeviceHelper（PID 0x1098 / 0x100F 实测）。
+    /// 本仓库未真机验证，🟡。
+    /// </summary>
+    public static class GameSirProtocol
+    {
+        public const int VendorId = 0x3537;
+
+        /// <summary>2.4G 接收器</summary>
+        public const int PidWireless = 0x1098;
+        /// <summary>USB 有线</summary>
+        public const int PidWired = 0x100F;
+
+        public const int UsagePage = 0xFF7A;
+        public const int Usage = 0x0001;
+        public const int ReportLength = 65;
+
+        /// <summary>电量字段偏移</summary>
+        public const int BatteryOffset = 19;
+
+        /// <summary>「正在充电，固件不提供百分比」的哨兵值</summary>
+        public const byte ChargingSentinel = 255;
+
+        public static byte[] BuildInfoQuery()
+        {
+            var frame = new byte[ReportLength];
+            frame[1] = 0x01;
+            frame[2] = 0x01;
+            return frame;
+        }
+
+        /// <summary>
+        /// 解析设备信息应答。
+        ///
+        /// chargingOnly 为 true 表示「设备在线且在充电，但拿不到百分比」——
+        /// 调用方应当保留上一次读数，而不是显示 0% 或 100%。
+        /// </summary>
+        public static bool TryParse(byte[]? report, out int percent, out bool charging,
+            out bool chargingOnly)
+        {
+            percent = -1;
+            charging = false;
+            chargingOnly = false;
+
+            if (report == null || report.Length != ReportLength) return false;
+            if (report[0] != 0x00 || report[1] != 0x01) return false;
+
+            // 设备标识：2..7 必须至少有一个非零字节，否则是空帧
+            bool hasIdentity = false;
+            for (int i = 2; i < 8; i++)
+            {
+                if (report[i] != 0) { hasIdentity = true; break; }
+            }
+            if (!hasIdentity) return false;
+
+            int raw = report[BatteryOffset];
+
+            if (raw == ChargingSentinel)
+            {
+                // 充电中但没有百分比 —— 这是合法的状态，不是错误
+                charging = true;
+                chargingOnly = true;
+                return true;
+            }
+
+            if (raw > 100) return false;
+
+            percent = raw;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 华硕 ROG PELTA 耳机 / Scope II RX 键盘。
+    ///
+    /// 64 字节报告，`usagePage 0xFF00 / usage 1`，帧头 `CC 12`：
+    ///   请求  [0]=CC [1]=12 [2]=key，其余 0
+    ///   应答  [0]=CC [1]=12 [2]=key [3]=00 [4]=00 …
+    ///         key 7 → [6] = 电量 0..100
+    ///         key 8 → [5] = 充电 0/1
+    ///
+    /// ⚠️ 有一个必须排除的伪应答：`[5]==0xFF && [6]==0xAA` 是设备的
+    /// 「未就绪占位帧」，不排除会读出一个看似合法但其实是垃圾的电量。
+    ///
+    /// 电量与充电是两个**独立命令**（key 7 / key 8），要发两次。
+    ///
+    /// 出处：FerrisPulse AsusDeviceHelper（PR #39，PID 0x1B84 / 0x1AB5）。
+    /// 本仓库未真机验证，🟡。
+    /// </summary>
+    public static class AsusProtocol
+    {
+        public const int VendorId = 0x0B05;
+
+        /// <summary>ROG PELTA 无线耳机接收器</summary>
+        public const int PidPelta = 0x1B84;
+        /// <summary>ROG Scope II RX 键盘</summary>
+        public const int PidScopeII = 0x1AB5;
+
+        public const int UsagePage = 0xFF00;
+        public const int Usage = 0x0001;
+
+        /// <summary>PELTA 用 64 字节，Scope II 用 65 字节</summary>
+        public const int ReportLengthPelta = 64;
+        public const int ReportLengthScope = 65;
+
+        public const byte Magic0 = 0xCC;
+        public const byte Magic1 = 0x12;
+
+        /// <summary>读电量</summary>
+        public const byte KeyBattery = 7;
+        /// <summary>读充电状态</summary>
+        public const byte KeyCharging = 8;
+
+        /// <summary>构造 64 字节请求</summary>
+        public static byte[] BuildQuery(byte key, int length = ReportLengthPelta)
+        {
+            var frame = new byte[length];
+            frame[0] = Magic0;
+            frame[1] = Magic1;
+            frame[2] = key;
+            return frame;
+        }
+
+        /// <summary>
+        /// 判断是不是对指定 key 的合法应答。
+        ///
+        /// 必须排除 `[5]=FF [6]=AA` 的占位帧 —— 那是设备还没准备好时
+        /// 回的东西，字段位置恰好符合格式，不排除就会读出垃圾值。
+        /// </summary>
+        public static bool IsReply(byte[]? report, byte key)
+        {
+            if (report == null || report.Length < 8) return false;
+            if (report[0] != Magic0 || report[1] != Magic1) return false;
+            if (report[2] != key) return false;
+            if (report[3] != 0x00 || report[4] != 0x00) return false;
+            if (report[5] == 0xFF && report[6] == 0xAA) return false;
+            return true;
+        }
+
+        /// <summary>解析电量应答（key 7）</summary>
+        public static bool TryParseBattery(byte[]? report, out int percent)
+        {
+            percent = -1;
+            if (!IsReply(report, KeyBattery)) return false;
+            if (report![6] > 100) return false;
+            percent = report[6];
+            return true;
+        }
+
+        /// <summary>解析充电应答（key 8）；0/1 之外的值不可信</summary>
+        public static bool TryParseCharging(byte[]? report, out bool charging)
+        {
+            charging = false;
+            if (!IsReply(report, KeyCharging)) return false;
+            if (report![5] > 1) return false;
+            charging = report[5] == 1;
+            return true;
+        }
+    }
+
+    /// <summary>
     /// 迈从（MCHOSE）鼠标的控制通道：**Feature Report + 数据异或 0xFF**。
     ///
     /// 与前面几家最大的不同：它不用中断端点，而是

@@ -36,10 +36,22 @@ namespace PeripheralBattery.Hardware
             Flydigi,
             Edifier,
             Mchose,
+            GameSir,
+            Asus,
+            HyperX,
+            Acer,
         }
 
         /// <summary>单次读超时。私有协议实测应答在 30ms 内，给 400ms 覆盖唤醒。</summary>
         private const double QueryTimeout = 0.4;
+
+        /// <summary>
+        /// 解析一条应答并取出数值。
+        ///
+        /// 用自定义委托而不是 Func：Func 不支持 out 参数，
+        /// 而这些 TryParse 系列的签名都是 `bool TryParse(byte[], out int)`。
+        /// </summary>
+        private delegate bool ReplyParser(byte[] report, out int value);
 
         private readonly VendorKind _kind;
         private readonly string _model;
@@ -62,6 +74,14 @@ namespace PeripheralBattery.Hardware
                     return ReadEdifier();
                 case VendorKind.Mchose:
                     return ReadMchose();
+                case VendorKind.GameSir:
+                    return ReadGameSir();
+                case VendorKind.Asus:
+                    return ReadAsus();
+                case VendorKind.HyperX:
+                    return ReadHyperX();
+                case VendorKind.Acer:
+                    return ReadAcer();
                 default:
                     return (null, "未知厂商协议 " + _kind);
             }
@@ -353,6 +373,351 @@ namespace PeripheralBattery.Hardware
             }
             return (null, lastError);
         }
+
+        // ============================================================ 盖世小鸡
+        private (Reading? reading, string error) ReadGameSir()
+        {
+            var interfaces = HidEnumerator.Enumerate(GameSirProtocol.VendorId)
+                .Where(i => i.UsagePage == GameSirProtocol.UsagePage
+                         && i.InputLength >= GameSirProtocol.ReportLength)
+                .ToList();
+
+            Tracer.Section(_model + " GameSir 接口");
+            foreach (var iface in interfaces) Tracer.Note(iface.ToString());
+
+            if (interfaces.Count == 0)
+            {
+                return (null, "没有找到 " + _model + " 的 GameSir 接口");
+            }
+
+            string lastError = _model + " 没有应答";
+            foreach (var iface in interfaces)
+            {
+                HidDevice device;
+                try { device = new HidDevice(iface.Path); }
+                catch (Exception exc)
+                {
+                    lastError = "打开 " + _model + " 失败：" + exc.Message;
+                    continue;
+                }
+
+                try
+                {
+                    byte[] request = GameSirProtocol.BuildInfoQuery();
+                    Tracer.Frame("[GameSir] 发 →", request);
+                    if (device.Write(request, 0.3) < 0)
+                    {
+                        lastError = _model + " 写入失败";
+                        continue;
+                    }
+
+                    var deadline = Stopwatch.StartNew();
+                    while (deadline.Elapsed.TotalSeconds < QueryTimeout)
+                    {
+                        var frame = device.Read(GameSirProtocol.ReportLength, 0.05);
+                        if (frame.Length == 0) continue;
+
+                        if (GameSirProtocol.TryParse(frame, out int percent,
+                                out bool charging, out bool chargingOnly))
+                        {
+                            Tracer.Frame($"[GameSir] 收 ← ({percent}%"
+                                + (chargingOnly ? " 充电中无百分比" : "") + ")", frame);
+
+                            if (chargingOnly)
+                            {
+                                // 哨兵值：设备在充电但固件不给电量。
+                                // 如实说明，不伪造 0% 也不伪造 100%。
+                                return (new Reading
+                                {
+                                    Name = _model,
+                                    Percent = null,
+                                    Charging = true,
+                                    Connected = true,
+                                    Status = "正在充电（固件不提供百分比）",
+                                    Transport = "GameSir",
+                                }, "");
+                            }
+
+                            return (Build(percent, charging, "GameSir"), "");
+                        }
+                        Tracer.Frame("[GameSir] 收 ← （帧头/标识不匹配，丢弃）", frame);
+                    }
+                    lastError = _model + " 读电量超时";
+                }
+                finally
+                {
+                    device.Dispose();
+                }
+            }
+            return (null, lastError);
+        }
+
+        // ============================================================ 华硕
+        private (Reading? reading, string error) ReadAsus()
+        {
+            var interfaces = HidEnumerator.Enumerate(AsusProtocol.VendorId)
+                .Where(i => i.UsagePage == AsusProtocol.UsagePage
+                         && i.InputLength >= AsusProtocol.ReportLengthPelta)
+                .ToList();
+
+            Tracer.Section(_model + " 华硕接口");
+            foreach (var iface in interfaces) Tracer.Note(iface.ToString());
+
+            if (interfaces.Count == 0)
+            {
+                return (null, "没有找到 " + _model + " 的华硕接口");
+            }
+
+            string lastError = _model + " 没有应答";
+            foreach (var iface in interfaces)
+            {
+                HidDevice device;
+                try { device = new HidDevice(iface.Path); }
+                catch (Exception exc)
+                {
+                    lastError = "打开 " + _model + " 失败：" + exc.Message;
+                    continue;
+                }
+
+                try
+                {
+                    int reportLength = iface.OutputLength > 0
+                        ? iface.OutputLength : AsusProtocol.ReportLengthPelta;
+                    reportLength = Math.Max(AsusProtocol.ReportLengthPelta,
+                        Math.Min(reportLength, AsusProtocol.ReportLengthScope));
+
+                    int? battery = QueryAsus(device, AsusProtocol.KeyBattery,
+                        reportLength, AsusProtocol.TryParseBattery);
+                    if (!battery.HasValue)
+                    {
+                        lastError = _model + " 读电量超时";
+                        continue;
+                    }
+
+                    // 充电是**独立命令**，要再发一次。读不到就当未充电 ——
+                    // 这个字段丢了不影响电量显示，不必因此判整轮失败。
+                    // TryParseCharging 的 out 是 bool，这里包一层转成 int
+                    int? charge = QueryAsus(device, AsusProtocol.KeyCharging,
+                        reportLength, ParseAsusCharging);
+                    bool charging = charge.HasValue && charge.Value == 1;
+
+                    Tracer.Note($"[华硕] 电量={battery.Value} 充电={charge?.ToString() ?? "?"}");
+                    return (Build(battery.Value, charging, "ROG"), "");
+                }
+                finally
+                {
+                    device.Dispose();
+                }
+            }
+            return (null, lastError);
+        }
+
+        /// <summary>把 TryParseCharging 的 out bool 适配成 out int</summary>
+        private static bool ParseAsusCharging(byte[] report, out int value)
+        {
+            value = -1;
+            if (!AsusProtocol.TryParseCharging(report, out bool charging)) return false;
+            value = charging ? 1 : 0;
+            return true;
+        }
+
+        /// <summary>
+        /// 发一条华硕 key 命令并等应答。
+        ///
+        /// parse 回调把「应答 → 数值」这一步委托出去：
+        /// 电量（key 7）在 [6]，充电（key 8）在 [5]，解析函数不同但流程一样。
+        /// 这样避免写两份几乎相同的循环。
+        /// </summary>
+        private static int? QueryAsus(HidDevice device, byte key, int reportLength,
+            ReplyParser parse)
+        {
+            byte[] request = AsusProtocol.BuildQuery(key, reportLength);
+            Tracer.Frame($"[华硕 key={key}] 发 →", request);
+            if (device.Write(request, 0.3) < 0) return null;
+
+            var deadline = Stopwatch.StartNew();
+            while (deadline.Elapsed.TotalSeconds < QueryTimeout)
+            {
+                var frame = device.Read(reportLength, 0.05);
+                if (frame.Length == 0) continue;
+
+                if (parse(frame, out int value))
+                {
+                    Tracer.Frame($"[华硕 key={key}] 收 ← ({value})", frame);
+                    return value;
+                }
+                // 占位帧（[5]=FF [6]=AA）会走到这里，正常丢弃
+                Tracer.Frame($"[华硕 key={key}] 收 ← （不匹配，丢弃）", frame);
+            }
+            return null;
+        }
+
+        // ============================================================ HyperX
+        private (Reading? reading, string error) ReadHyperX()
+        {
+            var interfaces = HidEnumerator.Enumerate(HyperXProtocol.VendorId)
+                .Where(i => i.InputLength >= HyperXProtocol.PacketLength - 1)
+                .ToList();
+
+            Tracer.Section(_model + " HyperX 接口");
+            foreach (var iface in interfaces) Tracer.Note(iface.ToString());
+
+            if (interfaces.Count == 0)
+            {
+                return (null, "没有找到 " + _model + " 的 HyperX 接口");
+            }
+
+            string lastError = _model + " 没有应答";
+            foreach (var iface in interfaces)
+            {
+                HidDevice device;
+                try { device = new HidDevice(iface.Path); }
+                catch (Exception exc)
+                {
+                    lastError = "打开 " + _model + " 失败：" + exc.Message;
+                    continue;
+                }
+
+                try
+                {
+                    int length = iface.OutputLength > 0
+                        ? iface.OutputLength : HyperXProtocol.PacketLength;
+
+                    int? battery = QueryHyperX(device, HyperXProtocol.CmdGetBattery,
+                        HyperXProtocol.RspBattery, length, HyperXProtocol.TryParseBattery);
+                    if (!battery.HasValue)
+                    {
+                        lastError = _model + " 读电量超时";
+                        continue;
+                    }
+
+                    int? charge = QueryHyperX(device, HyperXProtocol.CmdGetCharging,
+                        HyperXProtocol.RspCharging, length, ParseHyperXCharging);
+                    bool charging = charge.HasValue && charge.Value == 1;
+
+                    Tracer.Note($"[HyperX] 电量={battery.Value} 充电={charge?.ToString() ?? "?"}");
+                    return (Build(battery.Value, charging, "HyperX"), "");
+                }
+                finally
+                {
+                    device.Dispose();
+                }
+            }
+            return (null, lastError);
+        }
+
+        /// <summary>把 TryParseCharging 的 out bool 适配成 out int</summary>
+        private static bool ParseHyperXCharging(byte[] report, out int value)
+        {
+            value = -1;
+            if (!HyperXProtocol.TryParseCharging(report, out bool charging)) return false;
+            value = charging ? 1 : 0;
+            return true;
+        }
+
+        private static int? QueryHyperX(HidDevice device, byte command,
+            byte expectedResponse, int length, ReplyParser parse)
+        {
+            byte[] request = HyperXProtocol.BuildQuery(command);
+            Tracer.Frame($"[HyperX cmd=0x{command:X2}] 发 →", request);
+            if (device.Write(request, 0.3) < 0) return null;
+
+            var deadline = Stopwatch.StartNew();
+            while (deadline.Elapsed.TotalSeconds < QueryTimeout)
+            {
+                var frame = device.Read(length, 0.05);
+                if (frame.Length == 0) continue;
+
+                if (parse(frame, out int value))
+                {
+                    Tracer.Frame($"[HyperX 0x{expectedResponse:X2}] 收 ← ({value})", frame);
+                    return value;
+                }
+                Tracer.Frame($"[HyperX 0x{expectedResponse:X2}] 收 ← （响应码不符，丢弃）", frame);
+            }
+            return null;
+        }
+
+        // ============================================================ 宏碁
+        private (Reading? reading, string error) ReadAcer()
+        {
+            var interfaces = HidEnumerator.Enumerate(AcerProtocol.VendorIdWireless)
+                .Concat(HidEnumerator.Enumerate(AcerProtocol.VendorIdWired))
+                .Where(i => i.UsagePage == AcerProtocol.UsagePage
+                         || i.OutputLength >= AcerProtocol.ReportLength)
+                .ToList();
+
+            Tracer.Section(_model + " 宏碁接口");
+            foreach (var iface in interfaces) Tracer.Note(iface.ToString());
+
+            if (interfaces.Count == 0)
+            {
+                return (null, "没有找到 " + _model + " 的宏碁接口");
+            }
+
+            string lastError = _model + " 没有应答";
+            foreach (var iface in interfaces)
+            {
+                HidDevice device;
+                try { device = new HidDevice(iface.Path); }
+                catch (Exception exc)
+                {
+                    lastError = "打开 " + _model + " 失败：" + exc.Message;
+                    continue;
+                }
+
+                try
+                {
+                    int length = iface.OutputLength > 0
+                        ? iface.OutputLength : AcerProtocol.ReportLength;
+                    length = Math.Max(AcerProtocol.ReportLength, length);
+
+                    byte[] request = AcerProtocol.BuildInfoQuery(length);
+                    Tracer.Frame("[宏碁] 发 →", request);
+                    if (device.Write(request, 0.3) < 0)
+                    {
+                        lastError = _model + " 写入失败";
+                        continue;
+                    }
+
+                    var deadline = Stopwatch.StartNew();
+                    while (deadline.Elapsed.TotalSeconds < QueryTimeout)
+                    {
+                        var frame = device.Read(length, 0.05);
+                        if (frame.Length < AcerProtocol.ReportLength) continue;
+
+                        if (AcerProtocol.TryParse(frame, out int percent,
+                                out bool charging))
+                        {
+                            Tracer.Frame($"[宏碁] 收 ← ({percent}% 充电={charging})", frame);
+
+                            // 充电时设备用 100 当哨兵，退回上次非充电读数
+                            int displayed = AcerProtocol.ResolveDisplayed(
+                                percent, charging, _lastRealPercent);
+                            if (!charging) _lastRealPercent = percent;
+
+                            return (Build(displayed, charging, "Acer"), "");
+                        }
+                        Tracer.Frame("[宏碁] 收 ← （命令字节/设备 ID 不匹配，丢弃）", frame);
+                    }
+                    lastError = _model + " 读电量超时";
+                }
+                finally
+                {
+                    device.Dispose();
+                }
+            }
+            return (null, lastError);
+        }
+
+        /// <summary>
+        /// 最近一次「非充电」状态下的真实电量。
+        ///
+        /// 宏碁接收器在充电时会把电量字段填成 100 当哨兵（实测拔线 58%、
+        /// 插线瞬间变 100%，物理上不可能），所以需要这个值来还原。
+        /// 每个 Reader 实例独立，进程重启后第一次充电会显示 100% —— 可接受。
+        /// </summary>
+        private int _lastRealPercent = -1;
 
         private Reading Build(int percent, bool charging, string transport)
         {

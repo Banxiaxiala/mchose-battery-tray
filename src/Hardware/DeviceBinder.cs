@@ -55,6 +55,14 @@ namespace PeripheralBattery.Hardware
                     VendorReader.VendorKind.Edifier, definition.Model),
                 [ProtocolKind.MchoseVendor] = new VendorReader(
                     VendorReader.VendorKind.Mchose, definition.Model),
+                [ProtocolKind.GameSirVendor] = new VendorReader(
+                    VendorReader.VendorKind.GameSir, definition.Model),
+                [ProtocolKind.AsusVendor] = new VendorReader(
+                    VendorReader.VendorKind.Asus, definition.Model),
+                [ProtocolKind.HyperXVendor] = new VendorReader(
+                    VendorReader.VendorKind.HyperX, definition.Model),
+                [ProtocolKind.AcerVendor] = new VendorReader(
+                    VendorReader.VendorKind.Acer, definition.Model),
             };
 
             var channels = definition.Channels?.ToList() ?? new List<ProtocolChannel>();
@@ -162,6 +170,10 @@ namespace PeripheralBattery.Hardware
                 case ProtocolKind.FlydigiVendor:
                 case ProtocolKind.EdifierVendor:
                 case ProtocolKind.MchoseVendor:
+                case ProtocolKind.GameSirVendor:
+                case ProtocolKind.AsusVendor:
+                case ProtocolKind.HyperXVendor:
+                case ProtocolKind.AcerVendor:
                     return vendors.TryGetValue(channel.Kind, out var vendor)
                         ? Filter(vendor.Read(), channel)
                         : (null, "未装配 " + channel.Kind);

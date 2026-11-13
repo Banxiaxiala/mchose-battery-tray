@@ -40,6 +40,14 @@ namespace PeripheralBattery.Hardware
         EdifierVendor = 6,
         /// <summary>迈从鼠标 Feature Report 控制通道（数据异或 0xFF）</summary>
         MchoseVendor = 7,
+        /// <summary>盖世小鸡 65 字节报告（0xFF7A）</summary>
+        GameSirVendor = 8,
+        /// <summary>华硕 ROG 64/65 字节报告（CC 12 帧头）</summary>
+        AsusVendor = 9,
+        /// <summary>HyperX 62 字节报文（report id 0x66）</summary>
+        HyperXVendor = 10,
+        /// <summary>宏碁 VK M3 33 字节报文（命令 0x10）</summary>
+        AcerVendor = 11,
     }
 
     /// <summary>
@@ -235,6 +243,10 @@ namespace PeripheralBattery.Hardware
                 FlydigiDevice(),
                 EdifierHaloSpace(),
                 MchoseMouse(),
+                GameSirNova2(),
+                AsusRogPelta(),
+                HyperXCloud3(),
+                AcerVkM3(),
             };
 
         /// <summary>
@@ -321,6 +333,114 @@ namespace PeripheralBattery.Hardware
                         Kind = ProtocolKind.EdifierVendor,
                         VendorId = EdifierProtocol.VendorId,
                         Model = "花再 Halo Space",
+                    },
+                },
+            };
+        }
+
+        /// <summary>
+        /// 宏碁 VK M3 / OMR331 系列无线鼠标。
+        ///
+        /// 协议移植自 FerrisPulse AcerDeviceHelper。
+        /// 注意「充电时电量填 100 当哨兵」这个坑，见 AcerProtocol。
+        /// 本仓库未真机验证，🟡。
+        /// </summary>
+        private static DeviceDefinition AcerVkM3()
+        {
+            return new DeviceDefinition
+            {
+                Key = "acer-vkm3",
+                Label = "宏碁鼠标",
+                Model = "宏碁 VK M3",
+                EnabledByDefault = false,
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.AcerVendor,
+                        VendorId = AcerProtocol.VendorIdWireless,
+                        Model = "宏碁 VK M3",
+                    },
+                },
+            };
+        }
+
+        /// <summary>
+        /// HyperX 飓风3 无线耳机。
+        ///
+        /// 协议移植自 FerrisPulse HyperXDeviceHelper。
+        /// 明确排除飓风3S（0x06BE）—— 它的报文协议不同。
+        /// 本仓库未真机验证，🟡。
+        /// </summary>
+        private static DeviceDefinition HyperXCloud3()
+        {
+            return new DeviceDefinition
+            {
+                Key = "hyperx-cloud3",
+                Label = "HyperX 耳机",
+                Model = "HyperX 飓风3",
+                EnabledByDefault = false,
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.HyperXVendor,
+                        VendorId = HyperXProtocol.VendorId,
+                        Model = "HyperX 飓风3",
+                    },
+                },
+            };
+        }
+
+        /// <summary>
+        /// 盖世小鸡 启明星2 手柄。
+        ///
+        /// 协议移植自 FerrisPulse GameSirDeviceHelper。
+        /// 注意它的「充电中但无百分比」哨兵值（255），见 GameSirProtocol。
+        /// 本仓库未真机验证，🟡。
+        /// </summary>
+        private static DeviceDefinition GameSirNova2()
+        {
+            return new DeviceDefinition
+            {
+                Key = "gamesir-nova2",
+                Label = "小鸡手柄",
+                Model = "盖世小鸡 启明星2",
+                EnabledByDefault = false,
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.GameSirVendor,
+                        VendorId = GameSirProtocol.VendorId,
+                        Model = "盖世小鸡 启明星2",
+                    },
+                },
+            };
+        }
+
+        /// <summary>
+        /// 华硕 ROG PELTA 无线耳机。
+        ///
+        /// 协议移植自 FerrisPulse AsusDeviceHelper（PR #39）。
+        /// 电量与充电是两个独立命令，要发两次。
+        /// 本仓库未真机验证，🟡。
+        /// </summary>
+        private static DeviceDefinition AsusRogPelta()
+        {
+            return new DeviceDefinition
+            {
+                Key = "asus-rog-pelta",
+                Label = "ROG 耳机",
+                Model = "ROG PELTA",
+                EnabledByDefault = false,
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.AsusVendor,
+                        VendorId = AsusProtocol.VendorId,
+                        Model = "ROG PELTA",
                     },
                 },
             };
@@ -520,6 +640,14 @@ namespace PeripheralBattery.Hardware
                     kind = ProtocolKind.EdifierVendor; return true;
                 case "mchose": case "mchosevendor":
                     kind = ProtocolKind.MchoseVendor; return true;
+                case "gamesir": case "gamesirvendor":
+                    kind = ProtocolKind.GameSirVendor; return true;
+                case "asus": case "rog": case "asusvendor":
+                    kind = ProtocolKind.AsusVendor; return true;
+                case "hyperx": case "hyperxvendor":
+                    kind = ProtocolKind.HyperXVendor; return true;
+                case "acer": case "acervendor":
+                    kind = ProtocolKind.AcerVendor; return true;
                 default:
                     return false;
             }

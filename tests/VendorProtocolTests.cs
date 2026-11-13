@@ -289,6 +289,285 @@ namespace PeripheralBattery.Tests
             Assert.False(EdifierProtocol.TryReadBattery(null, out _), "null 安全");
         }
 
+        // ============================================================ 宏碁
+        //
+        // 33 字节，命令字节位置要扫描（带/不带 report id）
+
+        private static byte[] MakeAcerReply(int commandIndex, int percent, bool charging)
+        {
+            var reply = new byte[AcerProtocol.ReportLength];
+            reply[commandIndex] = AcerProtocol.CommandDeviceInfo;
+            reply[commandIndex + 1] = 0x00;
+            reply[commandIndex + 3] = 13;             // 载荷长度 ≥ 11
+            reply[commandIndex + 4] = (byte)'M';      // 设备 ID 必须是可打印 ASCII
+            reply[commandIndex + 5] = (byte)'2';
+            reply[commandIndex + 6] = (byte)'2';
+            reply[commandIndex + 7] = (byte)'0';
+            reply[commandIndex + AcerProtocol.ChargingOffset] = charging ? (byte)1 : (byte)0;
+            reply[commandIndex + AcerProtocol.BatteryOffset] = (byte)percent;
+            return reply;
+        }
+
+        [Test]
+        public static void AcerParsesBatteryWithoutReportId()
+        {
+            var reply = MakeAcerReply(0, 58, false);
+            Assert.True(AcerProtocol.TryParse(reply, out int percent, out bool charging),
+                "命令字节在 [0] 时应解析成功");
+            Assert.Equal(58, percent, "电量在 [13]");
+            Assert.False(charging, "未充电");
+        }
+
+        [Test]
+        public static void AcerParsesBatteryWithReportId()
+        {
+            // 带 report id 时命令字节后移一位。写死下标 0 的实现在这里必错。
+            var reply = MakeAcerReply(1, 72, true);
+            Assert.True(AcerProtocol.TryParse(reply, out int percent, out bool charging),
+                "命令字节在 [1] 时也要能解析");
+            Assert.Equal(72, percent, "电量");
+            Assert.True(charging, "充电中");
+        }
+
+        [Test]
+        public static void AcerRejectsNonAsciiDeviceId()
+        {
+            var reply = MakeAcerReply(0, 58, false);
+            reply[4] = 0x01;   // 不可打印
+            Assert.False(AcerProtocol.TryParse(reply, out _, out _),
+                "设备 ID 非 ASCII 要拒绝");
+        }
+
+        [Test]
+        public static void AcerChargingSentinelFallsBackToLastReal()
+        {
+            // 充电时设备把电量填成 100 当哨兵，必须退回上次真实读数
+            Assert.Equal(58, AcerProtocol.ResolveDisplayed(100, true, 58),
+                "充电读到 100 → 退回上次的 58");
+            Assert.Equal(45, AcerProtocol.ResolveDisplayed(45, true, 58),
+                "充电读到 45（不是哨兵）→ 原样用");
+            Assert.Equal(100, AcerProtocol.ResolveDisplayed(100, true, -1),
+                "没有历史值时原样返回，不编数字");
+            Assert.Equal(30, AcerProtocol.ResolveDisplayed(30, false, 58),
+                "未充电时总是原样返回");
+        }
+
+        // ============================================================ HyperX
+        //
+        // report id 0x66，电量命令 0x89 → 响应 0x0D
+
+        [Test]
+        public static void HyperXBuildQueryLayout()
+        {
+            var frame = HyperXProtocol.BuildQuery(HyperXProtocol.CmdGetBattery);
+            Assert.Equal(HyperXProtocol.PacketLength, frame.Length, "62 字节");
+            Assert.Equal(HyperXProtocol.ReportId, frame[0], "[0] report id 0x66");
+            Assert.Equal(HyperXProtocol.CmdGetBattery, frame[1], "[1] 命令码");
+        }
+
+        [Test]
+        public static void HyperXParsesBattery()
+        {
+            var reply = new byte[HyperXProtocol.PacketLength - 1];
+            reply[0] = HyperXProtocol.ReportId;
+            reply[1] = HyperXProtocol.RspBattery;
+            reply[HyperXProtocol.OffsetLevel] = 42;
+
+            Assert.True(HyperXProtocol.TryParseBattery(reply, out int percent),
+                "应解析成功");
+            Assert.Equal(42, percent, "电量在 [4]");
+        }
+
+        [Test]
+        public static void HyperXParsesCharging()
+        {
+            var reply = new byte[HyperXProtocol.PacketLength - 1];
+            reply[0] = HyperXProtocol.ReportId;
+            reply[1] = HyperXProtocol.RspCharging;
+            reply[HyperXProtocol.OffsetLevel] = 1;
+
+            Assert.True(HyperXProtocol.TryParseCharging(reply, out bool charging),
+                "应解析成功");
+            Assert.True(charging, "充电中");
+        }
+
+        [Test]
+        public static void HyperXRejectsWrongResponseCode()
+        {
+            // 用充电应答去当电量解析 → 必须失败。
+            // 两条命令的响应码不同（0x0C vs 0x0D），不校验就会串。
+            var reply = new byte[HyperXProtocol.PacketLength - 1];
+            reply[0] = HyperXProtocol.ReportId;
+            reply[1] = HyperXProtocol.RspCharging;
+            reply[HyperXProtocol.OffsetLevel] = 42;
+
+            Assert.False(HyperXProtocol.TryParseBattery(reply, out _),
+                "响应码不符要拒绝");
+        }
+
+        [Test]
+        public static void HyperXRejectsOutOfRange()
+        {
+            var reply = new byte[HyperXProtocol.PacketLength - 1];
+            reply[0] = HyperXProtocol.ReportId;
+            reply[1] = HyperXProtocol.RspBattery;
+            reply[HyperXProtocol.OffsetLevel] = 150;
+
+            Assert.False(HyperXProtocol.TryParseBattery(reply, out _),
+                "电量 > 100 要拒绝");
+        }
+
+        // ============================================================ 盖世小鸡
+        //
+        // 65 字节，usagePage 0xFF7A。注意 255 是「充电中但无百分比」哨兵。
+
+        [Test]
+        public static void GameSirParsesBattery()
+        {
+            var reply = new byte[GameSirProtocol.ReportLength];
+            reply[0] = 0x00;
+            reply[1] = 0x01;
+            reply[2] = 0xAB;   // 设备标识（非全零）
+            reply[GameSirProtocol.BatteryOffset] = 63;
+
+            Assert.True(GameSirProtocol.TryParse(reply, out int percent,
+                out bool charging, out bool chargingOnly), "应解析成功");
+            Assert.Equal(63, percent, "电量在 [19]");
+            Assert.False(charging, "未充电");
+            Assert.False(chargingOnly, "不是纯充电帧");
+        }
+
+        [Test]
+        public static void GameSirChargingSentinelIsNotAPercent()
+        {
+            // 255 是「正在充电，固件不给百分比」。
+            // 当成 100% 会误导（以为充满），当成 0% 会误报低电量。
+            var reply = new byte[GameSirProtocol.ReportLength];
+            reply[0] = 0x00;
+            reply[1] = 0x01;
+            reply[2] = 0xAB;
+            reply[GameSirProtocol.BatteryOffset] = GameSirProtocol.ChargingSentinel;
+
+            Assert.True(GameSirProtocol.TryParse(reply, out int percent,
+                out bool charging, out bool chargingOnly), "哨兵帧是合法状态，不是错误");
+            Assert.Equal(-1, percent, "不能给出百分比");
+            Assert.True(charging, "要标为充电中");
+            Assert.True(chargingOnly, "要标为「只有充电状态」");
+        }
+
+        [Test]
+        public static void GameSirRejectsEmptyIdentity()
+        {
+            // 设备标识全零 = 空帧
+            var reply = new byte[GameSirProtocol.ReportLength];
+            reply[0] = 0x00;
+            reply[1] = 0x01;
+            reply[GameSirProtocol.BatteryOffset] = 50;
+
+            Assert.False(GameSirProtocol.TryParse(reply, out _, out _, out _),
+                "标识全零要拒绝");
+        }
+
+        [Test]
+        public static void GameSirRejectsWrongFrameHeader()
+        {
+            var reply = new byte[GameSirProtocol.ReportLength];
+            reply[0] = 0xFF;   // 不是 0x00
+            reply[1] = 0x01;
+            reply[2] = 0xAB;
+
+            Assert.False(GameSirProtocol.TryParse(reply, out _, out _, out _),
+                "帧头不对要拒绝");
+        }
+
+        // ============================================================ 华硕 ROG
+        //
+        // CC 12 帧头，电量 key 7（[6]）、充电 key 8（[5]）
+
+        [Test]
+        public static void AsusParsesBattery()
+        {
+            var reply = new byte[61];
+            reply[0] = AsusProtocol.Magic0;
+            reply[1] = AsusProtocol.Magic1;
+            reply[2] = AsusProtocol.KeyBattery;
+            reply[3] = 0x00;
+            reply[4] = 0x00;
+            reply[6] = 88;
+
+            Assert.True(AsusProtocol.TryParseBattery(reply, out int percent),
+                "应解析成功");
+            Assert.Equal(88, percent, "电量在 [6]");
+        }
+
+        [Test]
+        public static void AsusParsesCharging()
+        {
+            var reply = new byte[61];
+            reply[0] = AsusProtocol.Magic0;
+            reply[1] = AsusProtocol.Magic1;
+            reply[2] = AsusProtocol.KeyCharging;
+            reply[3] = 0x00;
+            reply[4] = 0x00;
+            reply[5] = 0x01;
+
+            Assert.True(AsusProtocol.TryParseCharging(reply, out bool charging),
+                "应解析成功");
+            Assert.True(charging, "充电中");
+        }
+
+        [Test]
+        public static void AsusRejectsPlaceholderFrame()
+        {
+            // [5]=FF [6]=AA 是设备的「未就绪占位帧」。
+            // 字段位置恰好合法，不排除就会读出垃圾电量。
+            var reply = new byte[61];
+            reply[0] = AsusProtocol.Magic0;
+            reply[1] = AsusProtocol.Magic1;
+            reply[2] = AsusProtocol.KeyBattery;
+            reply[5] = 0xFF;
+            reply[6] = 0xAA;
+
+            Assert.False(AsusProtocol.TryParseBattery(reply, out _),
+                "占位帧必须被排除");
+        }
+
+        [Test]
+        public static void AsusRejectsWrongKey()
+        {
+            // 用 key 8 的应答去当电量解析 → 必须失败
+            var reply = new byte[61];
+            reply[0] = AsusProtocol.Magic0;
+            reply[1] = AsusProtocol.Magic1;
+            reply[2] = AsusProtocol.KeyCharging;
+            reply[6] = 88;
+
+            Assert.False(AsusProtocol.TryParseBattery(reply, out _),
+                "key 不符要拒绝");
+        }
+
+        [Test]
+        public static void AsusRejectsOutOfRange()
+        {
+            var reply = new byte[61];
+            reply[0] = AsusProtocol.Magic0;
+            reply[1] = AsusProtocol.Magic1;
+            reply[2] = AsusProtocol.KeyBattery;
+            reply[6] = 200;
+
+            Assert.False(AsusProtocol.TryParseBattery(reply, out _),
+                "电量 > 100 要拒绝");
+
+            var charge = new byte[61];
+            charge[0] = AsusProtocol.Magic0;
+            charge[1] = AsusProtocol.Magic1;
+            charge[2] = AsusProtocol.KeyCharging;
+            charge[5] = 5;   // 只能是 0/1
+
+            Assert.False(AsusProtocol.TryParseCharging(charge, out _),
+                "充电标志只能是 0/1");
+        }
+
         // ============================================================ 迈从
         //
         // 唯一走 Feature Report 的协议：数据整体异或 0xFF

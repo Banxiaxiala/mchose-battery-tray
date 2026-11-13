@@ -118,7 +118,13 @@ namespace PeripheralBattery
                 string style = args.Length > 2 ? args[2] : "bar";
                 int range = 24;
                 if (args.Length > 3) int.TryParse(args[3], out range);
-                Tools.CardPreview.Run(output, style, range);
+                bool light = Array.IndexOf(args, "--light") >= 0;
+                int width = 0;
+                for (int i = 0; i + 1 < args.Length; i++)
+                {
+                    if (args[i] == "--width") int.TryParse(args[i + 1], out width);
+                }
+                Tools.CardPreview.Run(output, style, range, light, width);
                 return;
             }
 

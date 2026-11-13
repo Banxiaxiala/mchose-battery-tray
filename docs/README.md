@@ -5,13 +5,15 @@
 > 只占**一个**托盘图标（三圈同心环），**左键单击**弹出亚克力卡片看
 > 24 小时历史与续航预测。
 >
-> C# + WPF 实现，单文件 exe 仅 **397 KB**，零第三方运行时依赖。
+> C# + WPF 实现，单文件 exe 约 **425 KB**，零第三方运行时依赖。
 >
 > 旧名「2.4G 设备电量」（v3）。改名只影响 exe 名与数据目录，
 > 首次启动会自动把 `%LOCALAPPDATA%.4G设备电量\` 整目录搬到
 > `%LOCALAPPDATA%\外设电量\`，历史曲线不丢。
 
-![预览](assets/preview.png)
+![预览](../assets/screens/line-24h.png)
+
+> 完整界面截图与架构图见仓库根目录的 [README.md](../README.md)。
 
 ## 特性
 
@@ -413,14 +415,18 @@ dist/                     构建产物（git 忽略）
 
 | 文件 | 用途 |
 |---|---|
-| `build.bat` | 一键构建（杀进程 → 测试 → 编译 → 发布） |
+| `build.bat` | 一键构建（定位 SDK → 杀进程 → 测试 → 编译 → 发布） |
 | `ARCHITECTURE.md` | 分层、关键设计决策、线程模型、协议速查、性能数据 |
-| `AGENTS.md` | 维护铁律（12 条） |
+| `AGENTS.md` | 维护铁律（13 章 + 9b/9c 两条专章，AI / 开发者共同遵守） |
 | `app.ico` / `icon.ico` | exe 图标 / 托盘图标资源 |
 | `HANDOVER.md` | **交接文档**：装环境、改代码、排查手册、已知限制 |
-| `assets/preview.png` | 说明图 |
+| `assets/architecture.png` | 五层架构图（`tools/draw_diagrams.py` 生成） |
+| `assets/fallback-chain.png` | 读取降级链示意 |
+| `assets/dataflow.png` | 一次刷新的数据流 |
+| `assets/storage-layers.png` | 历史三层聚合示意 |
+| `assets/screens/*.png` | 卡片渲染图（`--preview` 生成） |
 | `tools/list_files.py` | 文件清单与交接自检（检查必需文件是否齐全） |
-| `archive/python-prototype/` | 早期 Python 实现，作协议与算法基准 |
+| `tools/draw_diagrams.py` | 生成 README 用的架构 / 数据流 / 存储示意 PNG |
 
 ## 已知限制
 

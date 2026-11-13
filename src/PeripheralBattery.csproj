@@ -27,7 +27,7 @@
     <RootNamespace>PeripheralBattery</RootNamespace>
     <ApplicationIcon>..\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>4.0.0</Version>
+    <Version>4.1.0</Version>
     <Product>外设电量</Product>
     <AssemblyTitle>外设电量</AssemblyTitle>
     <FileDescription>外设电量</FileDescription>

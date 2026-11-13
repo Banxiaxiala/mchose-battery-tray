@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
 #
 # 1. [只读遍历] 本脚本不修改任何源码，只输出文件树与关键统计，
@@ -62,11 +62,16 @@ def main():
 
     # 交接前自检：这几个文件缺了就是没准备好
     required = [
-        "README.md", "ARCHITECTURE.md", "AGENTS.md", "HANDOVER.md",
+        "README.md",
+        "docs/README.md", "docs/ARCHITECTURE.md", "docs/AGENTS.md",
+        "docs/HANDOVER.md",
         "build.bat", ".gitignore",
         "src/PeripheralBattery.csproj",
         "src/Program.cs",
         "tests/PeripheralBattery.Tests.csproj",
+        # README 引用的图，缺了就是死链
+        "assets/architecture.png", "assets/fallback-chain.png",
+        "assets/dataflow.png", "assets/storage-layers.png",
     ]
     missing = [r for r in required if not os.path.exists(os.path.join(ROOT, r))]
     print()

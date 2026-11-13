@@ -20,7 +20,7 @@ namespace PeripheralBattery.Tools
     internal static class CardPreview
     {
         public static void Run(string outputPath, string style = "bar",
-            int rangeHours = 24)
+            int rangeHours = 24, bool light = false, int width = 0)
         {
             double now = TimeText.UnixNow();
 
@@ -153,8 +153,13 @@ namespace PeripheralBattery.Tools
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             app.Resources["PreviewMode"] = true;
 
+            // 浅色主题用于 README 的对照图。必须在建控件之前设置：
+            // Palette 的刷子是按当前主题缓存的，建完再改不会重绘。
+            if (light) Theme.ForceDark = false;
+
             var card = new BatteryCard();
             card.ApplyChartSettings(style, rangeHours);
+            if (width > 0) card.ApplyMetrics(width, 54, 0);
             card.Render(devices);
             card.Anchor = new Point(2300, 1400);
             card.Show();
@@ -200,8 +205,13 @@ namespace PeripheralBattery.Tools
             var visual = new DrawingVisual();
             using (var context = visual.RenderOpen())
             {
-                // 画一层背景，方便看透明/亚克力区域
-                context.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x20, 0x24, 0x2A)),
+                // 画一层背景，方便看透明/亚克力区域。
+                // 必须跟随主题：这个底板是预览专用（真实运行时是 DWM 亚克力），
+                // 深色底板配浅色文字会看不清。
+                Color backdrop = Theme.IsDark
+                    ? Color.FromRgb(0x20, 0x24, 0x2A)
+                    : Color.FromRgb(0xF3, 0xF4, 0xF6);
+                context.DrawRectangle(new SolidColorBrush(backdrop),
                     null, new Rect(0, 0, width, height));
                 context.DrawRectangle(new VisualBrush(content), null,
                     new Rect(0, 0, width, height));

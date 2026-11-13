@@ -2,33 +2,28 @@
 #  GitHub Linguist 配置
 #
 #  为什么需要这个文件：
-#  本仓库 fork 自一个 **Python** 项目（2.4G-battery-viewer），fork 创建时
-#  GitHub 会把上游的初始提交一起算进语言统计，于是仓库首页显示
-#  「Python 100%」—— 而实际代码 37 个 .cs、只有 2 个辅助 .py。
+#  本仓库 fork 自一个 **Python** 项目（2.4G-battery-viewer）。GitHub 在
+#  fork 创建时把上游初始提交也算进了语言统计，于是首页长期显示
+#  「Python 100%」—— 而实际代码是 37 个 .cs、只有 2 个辅助 .py。
 #
-#  下面做了两件事：
-#    1. 把 tools/ 下的 Python 辅助脚本标记为「非项目语言」
-#       （它们是构建期工具，不是产品的一部分）
-#    2. 显式声明 .cs 为 C#，避免任何推断偏差
-#
-#  注意：这些规则只影响 GitHub 的语言统计与 diff 显示，
-#  不影响本地构建。
+#  改 main 分支内容不管用：语言统计是在仓库层面缓存的，
+#  要触发重算必须让 linguist 看到**规则变化**。下面用
+#  `linguist-vendored` 把辅助脚本彻底移出统计口径。
 # ─────────────────────────────────────────────────────────────────────────
 
 # 产品代码就是 C#
 *.cs            linguist-language=C#
 *.csproj        linguist-language=XML
 *.xaml          linguist-language=C#
+*.bat           linguist-language=Batchfile
 
-# tools/ 下是构建期辅助脚本（出图、文件清单自检），
-# 不是产品的一部分，不计入语言统计
-tools/*.py      linguist-documentation
-tools/*.py      linguist-vendored=false
+# tools/ 下是构建期辅助脚本（出图、文件清单自检），不是产品的一部分。
+# 用 linguist-vendored 而不是 documentation：
+# documentation 只影响 UI 归类，vendored 才会真正从百分比里剔除。
+tools/*.py      linguist-vendored
 
-# 文档与资源不计入代码统计
+# 文档与资源同样不计入代码统计
 docs/**         linguist-documentation
 assets/**       linguist-documentation
 *.md            linguist-documentation
-
-# 构建脚本按 Shell 归类（.bat 实际是 cmd 脚本）
-*.bat           linguist-language=Batchfile
+LICENSE         linguist-documentation

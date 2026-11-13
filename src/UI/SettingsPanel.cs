@@ -932,36 +932,94 @@ namespace PeripheralBattery.UI
                 // ---- 第二行：唯一标识（小字，方便分辨同型号）----
                 var identityText = MakeText(device.IdentityHint, 8.5, Faint());
                 identityText.TextWrapping = TextWrapping.Wrap;
-                identityText.Margin = new Thickness(22, 0, 0, 2);
+                identityText.Margin = new Thickness(22, 0, 0, 0);
                 row.Children.Add(identityText);
 
-                // ---- 第三行：备注输入 ----
-                var noteRow = new StackPanel
+                // 备注不做成常驻输入框 —— 一排方框很难看。
+                // 改成：有备注就显示成小字，末尾一个笔图标；点它才展开编辑。
+                var noteLine = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
-                    Margin = new Thickness(22, 0, 0, 0),
+                    Margin = new Thickness(22, 3, 0, 0),
                 };
-                var noteBox = new TextBox
+
+                string currentNote = _settings.GetNickname(capturedIdentity);
+                var noteLabel = MakeText(
+                    currentNote.Length > 0 ? currentNote : "",
+                    9,
+                    currentNote.Length > 0 ? Secondary() : Faint());
+                noteLabel.VerticalAlignment = VerticalAlignment.Center;
+                noteLine.Children.Add(noteLabel);
+
+                var editButton = new Button
                 {
-                    Width = 150,
+                    Content = "✎",
+                    Width = 20,
+                    Height = 20,
+                    FontSize = 11,
+                    Margin = new Thickness(4, 0, 0, 0),
+                    Cursor = Cursors.Hand,
+                    Background = Brushes.Transparent,
+                    Foreground = Faint(),
+                    BorderThickness = new Thickness(0),
+                    ToolTip = "修改备注",
+                };
+                noteLine.Children.Add(editButton);
+                row.Children.Add(noteLine);
+
+                // 编辑态：默认隐藏，点笔才出现
+                var editor = new TextBox
+                {
+                    Width = 170,
                     Height = 22,
                     FontSize = 10,
                     Padding = new Thickness(5, 0, 5, 0),
+                    Margin = new Thickness(22, 3, 0, 0),
                     VerticalContentAlignment = VerticalAlignment.Center,
-                    Text = _settings.GetNickname(capturedIdentity),
-                    ToolTip = "给这台设备起个名字，例如「主力鼠标」「客厅耳机」",
+                    Text = currentNote,
+                    Visibility = Visibility.Collapsed,
+                    ToolTip = "留空表示恢复显示型号名",
                 };
-                noteBox.TextChanged += (_, _) =>
+                row.Children.Add(editor);
+
+                editButton.Click += (_, _) =>
                 {
-                    if (_suppressEvents) return;
-                    if (_settings.SetNickname(capturedIdentity, noteBox.Text))
+                    bool opening = editor.Visibility != Visibility.Visible;
+                    editor.Visibility = opening ? Visibility.Visible : Visibility.Collapsed;
+                    noteLine.Visibility = opening ? Visibility.Collapsed : Visibility.Visible;
+                    if (opening)
+                    {
+                        editor.Focus();
+                        editor.CaretIndex = editor.Text.Length;
+                    }
+                };
+
+                void Commit()
+                {
+                    if (_settings.SetNickname(capturedIdentity, editor.Text))
                     {
                         Persist();
                         _onDevicesChanged?.Invoke();
                     }
+                    string now = _settings.GetNickname(capturedIdentity);
+                    noteLabel.Text = now;
+                    noteLabel.Foreground = now.Length > 0 ? Secondary() : Faint();
+                    editor.Visibility = Visibility.Collapsed;
+                    noteLine.Visibility = Visibility.Visible;
+                }
+
+                editor.LostFocus += (_, _) => Commit();
+                editor.KeyDown += (_, e) =>
+                {
+                    if (e.Key == Key.Enter) { Commit(); e.Handled = true; }
+                    if (e.Key == Key.Escape)
+                    {
+                        editor.Text = _settings.GetNickname(capturedIdentity);
+                        editor.Visibility = Visibility.Collapsed;
+                        noteLine.Visibility = Visibility.Visible;
+                        e.Handled = true;
+                    }
                 };
-                noteRow.Children.Add(noteBox);
-                row.Children.Add(noteRow);
 
                 list.Children.Add(row);
             }

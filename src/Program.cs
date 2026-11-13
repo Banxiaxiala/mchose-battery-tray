@@ -491,6 +491,17 @@ namespace PeripheralBattery
             foreach (var slot in _devices)
             {
                 var reading = slot.Latest;
+
+                // 只列出「真的连过」的设备。
+                //
+                // 14 个内置型号全列出来会让面板变成一张噪音清单 ——
+                // 用户只插了一个鼠标，却看到 14 行「未检测到」，
+                // 完全分不清哪个是自己要管理的。
+                //
+                // 判定「连过」：有过读数（哪怕现在离线），或者是用户
+                // 主动开着的（他可能想先配好再插设备）。
+                if (reading == null && !slot.Enabled) continue;
+
                 string identity = reading?.Identity ?? "";
                 if (identity.Length == 0)
                 {
@@ -584,8 +595,6 @@ namespace PeripheralBattery
                     Reading? reading = null;
                     try
                     {
-                        // 读得到 = 设备在、协议对、能出数。
-                        // 只「枚举到接口」不算 —— 那可能是个永远 0% 的空环。
                         (reading, _) = slot.Read();
                     }
                     catch (Exception)
@@ -597,7 +606,32 @@ namespace PeripheralBattery
 
                 foreach (var (key, reading) in results)
                 {
+                    // ⚠️ 判据必须是「在线且有电量」，不能只看有电量。
+                    //
+                    // 蓝牙通道读的是 Windows 缓存属性：设备关机后，
+                    // 那几个节点仍然留着上次的百分比（实测离线 8 小时还是 100%）。
+                    // 只看 Percent.HasValue 会把「早就拔掉的耳机」当成在连着，
+                    // 于是首次启动就启用了三台设备，但用户只插了一个鼠标。
                     if (reading == null || !reading.Percent.HasValue) continue;
+                    if (!reading.Connected) continue;
+
+                    // 第三道判据：蓝牙缓存的新鲜度。
+                    // IsConnected 在链路刚断时还没更新（实测差几十秒到几分钟），
+                    // 所以要再看「电量多久没刷新了」。实测数据：
+                    //   在用的耳机   → 几十秒内刚刷新
+                    //   两小时前关掉 → 停在 20:57
+                    //   三天前关掉的键盘 → 停在 3 天前
+                    // 取 10 分钟：足够容忍一次刷新间隔，又能挡住「早就关了」。
+                    bool fresh = reading.IsFresh(TimeSpan.FromMinutes(10));
+                    if (!fresh)
+                    {
+                        // 只记「跳过」这一种情况：正常探测到的不必刷日志，
+                        // 但「为什么这台没启用」是排查时的关键信息。
+                        Core.Tracer.Line($"[首次探测] {key} 跳过：数据太旧 " +
+                            $"（{reading.DataAt:yyyy-MM-dd HH:mm}）");
+                        continue;
+                    }
+
                     found.Add(key);
                     // 回填到 slot，让首帧就有数（不然第一次刷新前是空的）
                     foreach (var slot in _devices)

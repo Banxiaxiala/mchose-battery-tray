@@ -40,6 +40,29 @@ namespace PeripheralBattery.Models
         public string Identity { get; set; } = "";
 
         /// <summary>
+        /// 这个读数的**数据时间**。DateTime.MinValue 表示「不知道 / 不适用」。
+        ///
+        /// 为什么需要：蓝牙通道读的是 Windows 缓存，设备早关了属性还在。
+        /// 而且 `IsConnected` 在链路刚断时还没更新（实测差几十秒到几分钟）。
+        /// 真正能判「这台还在用」的是**电量被刷新的时间** ——
+        /// 在用的设备系统会持续更新，关掉的会停在关机那一刻。
+        ///
+        /// HID 协议是实时读的，这个字段留 MinValue（永远算新鲜）。
+        /// </summary>
+        public DateTime DataAt { get; set; } = DateTime.MinValue;
+
+        /// <summary>
+        /// 读数是否「新鲜」：要么是实时协议（无时间戳），
+        /// 要么缓存时间在 maxAge 以内。
+        /// </summary>
+        public bool IsFresh(TimeSpan maxAge, DateTime? now = null)
+        {
+            if (DataAt == DateTime.MinValue) return true;   // 实时协议
+            var current = now ?? DateTime.Now;
+            return current - DataAt <= maxAge;
+        }
+
+        /// <summary>
         /// 用户可改的备注名。空表示用 <see cref="Name"/>。
         ///
         /// 存在 Reading 上而不是设置里，是因为它跟着**这一台**走：

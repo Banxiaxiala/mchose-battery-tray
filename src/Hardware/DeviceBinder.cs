@@ -272,6 +272,8 @@ namespace PeripheralBattery.Hardware
                 Transport = "蓝牙",
                 // 蓝牙 MAC 是天然唯一的设备身份，比 HID 序列号可靠得多
                 Identity = DeviceIdentity.Bluetooth(info.Address),
+                // 系统记录这个电量的时刻：判断「还在用」的硬判据
+                DataAt = info.UpdatedAt,
             }, "");
         }
 

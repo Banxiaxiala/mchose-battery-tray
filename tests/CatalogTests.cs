@@ -213,6 +213,62 @@ namespace PeripheralBattery.Tests
                 "真实身份不该被误判为降级");
         }
 
+        // ============================================================ 读数新鲜度
+        //
+        // 用户问：「我只连了一个鼠标，你怎么知道我有三个设备？」
+        //
+        // 答案：那时候判据太松。蓝牙属性在设备关掉后仍留着上次电量，
+        // 而且 IsConnected 在链路刚断时还没更新。只看「有电量 + 在线」
+        // 会把两小时前就关掉的耳机算进来。
+        // 真正硬的判据是**电量最后被刷新的时间**。
+
+        [Test]
+        public static void FreshHidReadingAlwaysFresh()
+        {
+            // HID 是实时读的，没有时间戳 → 永远算新鲜
+            var reading = new Models.Reading { DataAt = System.DateTime.MinValue };
+            Assert.True(reading.IsFresh(System.TimeSpan.FromMinutes(10)),
+                "无时间戳（实时协议）应算新鲜");
+        }
+
+        [Test]
+        public static void StaleBluetoothReadingIsRejected()
+        {
+            var now = new System.DateTime(2026, 11, 13, 22, 0, 0);
+
+            // 2 小时前刷新的（设备早关了）
+            var old = new Models.Reading
+            {
+                DataAt = now.AddHours(-2),
+            };
+            Assert.False(old.IsFresh(System.TimeSpan.FromMinutes(10), now),
+                "两小时前的缓存必须判为不新鲜");
+
+            // 30 秒前刷新的（正在用）
+            var fresh = new Models.Reading
+            {
+                DataAt = now.AddSeconds(-30),
+            };
+            Assert.True(fresh.IsFresh(System.TimeSpan.FromMinutes(10), now),
+                "刚刷新过的应算新鲜");
+        }
+
+        [Test]
+        public static void FreshnessBoundaryIsInclusive()
+        {
+            var now = new System.DateTime(2026, 11, 13, 22, 0, 0);
+            var max = System.TimeSpan.FromMinutes(10);
+
+            var exactly = new Models.Reading { DataAt = now - max };
+            Assert.True(exactly.IsFresh(max, now), "正好到边界算新鲜（<=）");
+
+            var justOver = new Models.Reading
+            {
+                DataAt = now - max - System.TimeSpan.FromSeconds(1),
+            };
+            Assert.False(justOver.IsFresh(max, now), "超过边界算旧");
+        }
+
         // ============================================================ 通道别名
         //
         // 用户问的核心问题：「用蓝牙后再用端口，会不会被识别成两个设备？」

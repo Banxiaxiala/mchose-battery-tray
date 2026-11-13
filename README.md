@@ -541,6 +541,28 @@ py -3.13 tools\draw_diagrams.py --png    rem 同时出 PNG（本地预览用）
 并标明各自许可证 —— 因为本项目是 GPL-3.0 派生作品，这些归属是**法律要求**
 而不只是礼貌。
 
+### 代码来源谱系
+
+```
+yszyszysz233/2.4G-battery-viewer    ← 最初的灵感与方法论（Prompt 驱动逆向）
+        │                            无许可证
+        ↓
+marsuyone/mchose-battery-tray       ← 第一版 C#/托盘实现
+        │                            无许可证
+        ↓
+Banxiaxiala/mchose-battery-tray      ← 本项目（演进为多协议 + 历史图表）
+                                      GPL-3.0
+```
+
+| 项目 | 许可证 | 我们用了什么 |
+|---|---|---|
+| [2.4G-battery-viewer](https://github.com/yszyszysz233/2.4G-battery-viewer) | 无 | **方法论来源**：把「枚举 HID → 抓包 → 试命令 → 爆破校验」这套逆向流程写成可复用的 Prompt。<br>本项目沿用了它的核心思路：**协议靠实测，不靠猜**。 |
+| [marsuyone/mchose-battery-tray](https://github.com/marsuyone/mchose-battery-tray) | 无 | **本仓库的 fork 上游**：单图标多圆环的托盘外观、主题跟随、单实例。<br>本项目的 git 历史前两个提交即出自该作者。 |
+
+> ⚠️ 这两个上游**没有声明许可证**。「无许可证」默认保留所有权利 ——
+> 本项目在它们基础上做了大量演进（多协议、三层历史、设备表驱动），
+> 并选择以 GPL-3.0 发布。如果上游作者对此有异议，请联系调整。
+
 ### 代码移植（GPL-3.0 派生来源）
 
 | 项目 | 许可证 | 我们用了什么 |

@@ -18,6 +18,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shell;
 using PeripheralBattery.Core;
+using PeripheralBattery.Models;
 using PeripheralBattery.Services;
 
 namespace PeripheralBattery.UI
@@ -315,6 +316,47 @@ namespace PeripheralBattery.UI
             if (_devices.Count > 0)
             {
                 _root.Children.Add(MakeSectionTitle("设备"));
+
+                // 卡片容量：设备一多，卡片会高到超出屏幕。
+                // 这里给用户一个上限，超出的不进卡片（但在托盘环与提示里仍在）。
+                var limitRow = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(0, 2, 0, 6),
+                };
+                var limitLabel = MakeText("卡片最多显示", 10.5, Secondary());
+                limitLabel.VerticalAlignment = VerticalAlignment.Center;
+                limitRow.Children.Add(limitLabel);
+
+                var limitBox = new ComboBox
+                {
+                    Width = 62,
+                    Height = 22,
+                    Margin = new Thickness(8, 0, 6, 0),
+                    FontSize = 10.5,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                };
+                for (int i = Settings.MaxCardDevicesMin; i <= Settings.MaxCardDevicesMax; i++)
+                {
+                    limitBox.Items.Add(i + " 台");
+                }
+                limitBox.SelectedIndex =
+                    _settings.MaxCardDevices - Settings.MaxCardDevicesMin;
+                limitBox.SelectionChanged += (_, _) =>
+                {
+                    if (_suppressEvents || limitBox.SelectedIndex < 0) return;
+                    _settings.MaxCardDevices = Settings.ClampMaxCardDevices(
+                        limitBox.SelectedIndex + Settings.MaxCardDevicesMin);
+                    Persist();
+                };
+                limitRow.Children.Add(limitBox);
+
+                var limitUnit = MakeText("超出的仍进托盘提示", 9, Faint());
+                limitUnit.VerticalAlignment = VerticalAlignment.Center;
+                limitRow.Children.Add(limitUnit);
+
+                _root.Children.Add(limitRow);
+
                 var deviceHint = MakeText(
                     "关闭后完全不探测、不占托盘环、不记历史",
                     9, Faint());
@@ -771,11 +813,21 @@ namespace PeripheralBattery.UI
 
             double x = cardRect.Left - width - 10;
             if (x < work.Left + 8) x = cardRect.Right + 10;
-            x = Math.Clamp(x, work.Left + 8, work.Right - width - 8);
 
-            double y = Math.Clamp(cardRect.Top, work.Top + 8, work.Bottom - height - 8);
+            // 同样要容忍 min > max：卡片比屏幕高时（设备多），
+            // work.Bottom - height - 8 会小于 work.Top + 8，Math.Clamp 会抛。
+            ClampInto(ref x, work.Left + 8, work.Right - width - 8, work.Left);
+            double y = cardRect.Top;
+            ClampInto(ref y, work.Top + 8, work.Bottom - height - 8, work.Top);
             Left = x;
             Top = y;
+        }
+
+        /// <summary>把坐标夹进 [min, max]；min &gt; max 时贴住 fallback</summary>
+        private static void ClampInto(ref double value, double min, double max,
+            double fallback)
+        {
+            value = ScreenClamp.Into(value, min, max, fallback);
         }
     }
 }

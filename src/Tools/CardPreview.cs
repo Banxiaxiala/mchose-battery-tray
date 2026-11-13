@@ -8,6 +8,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -20,7 +21,8 @@ namespace PeripheralBattery.Tools
     internal static class CardPreview
     {
         public static void Run(string outputPath, string style = "bar",
-            int rangeHours = 24, bool light = false, int width = 0)
+            int rangeHours = 24, bool light = false, int width = 0,
+            int repeatDevices = 1)
         {
             double now = TimeText.UnixNow();
 
@@ -150,6 +152,48 @@ namespace PeripheralBattery.Tools
                 },
             };
 
+            // 压测：把现有设备复制 N 份，用于验证「设备多到超出屏幕」时的行为。
+            // 这是修崩溃 bug（Math.Clamp min>max）时加的回归手段。
+            if (repeatDevices > 1)
+            {
+                var expanded = new List<CardDevice>();
+                for (int i = 0; i < repeatDevices; i++)
+                {
+                    foreach (var device in devices)
+                    {
+                        expanded.Add(new CardDevice
+                        {
+                            Label = device.Label + (i + 1),
+                            Reading = device.Reading,
+                            Analysis = device.Analysis,
+                            Points = device.Points,
+                            Buckets = device.Buckets,
+                            RangeFrom = device.RangeFrom,
+                            RangeTo = device.RangeTo,
+                            FromUnix = device.FromUnix,
+                            ToUnix = device.ToUnix,
+                            RangeMin = device.RangeMin,
+                            RangeMax = device.RangeMax,
+                            RangeActiveHours = device.RangeActiveHours,
+                        });
+                    }
+                }
+                devices = expanded;
+            }
+
+            // 与 Program.RefreshCardData 保持一致：按上限截断 + 排序
+            int limit = Settings.ClampMaxCardDevices(
+                Settings.Load().MaxCardDevices);
+            int omitted = 0;
+            if (devices.Count > limit)
+            {
+                devices = devices
+                    .OrderBy(d => d.Percent ?? int.MaxValue)
+                    .ToList();
+                omitted = devices.Count - limit;
+                devices = devices.Take(limit).ToList();
+            }
+
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             app.Resources["PreviewMode"] = true;
 
@@ -160,7 +204,7 @@ namespace PeripheralBattery.Tools
             var card = new BatteryCard();
             card.ApplyChartSettings(style, rangeHours);
             if (width > 0) card.ApplyMetrics(width, 54, 0);
-            card.Render(devices);
+            card.Render(devices, omitted);
             card.Anchor = new Point(2300, 1400);
             card.Show();
 

@@ -244,6 +244,40 @@ namespace PeripheralBattery.Models
         }
     }
 
+    /// <summary>
+    /// 屏幕坐标夹取。
+    ///
+    /// 存在理由：`Math.Clamp(value, min, max)` 在 min &gt; max 时**直接抛异常**
+    /// （"max cannot be less than min"）。而窗口尺寸由内容决定 ——
+    /// 设备一多（实测 14 台），卡片高度就会超过屏幕工作区，
+    /// 此时 `work.Bottom - height - 8` 算出来是负数，程序当场崩溃。
+    ///
+    /// 这种情况下的正确行为是**贴住起始边**：宁可让底部超出屏幕
+    /// （配合滚动条，用户还能看到全部内容），也绝不能崩。
+    ///
+    /// 抽成纯函数是为了能脱机断言 —— 这个 bug 第一次出现时
+    /// 没有测试，靠用户截图才发现。
+    /// </summary>
+    public static class ScreenClamp
+    {
+        /// <summary>
+        /// 把 value 夹进 [min, max]；当 min &gt; max（放不下）时贴住 fallback。
+        /// </summary>
+        public static double Into(double value, double min, double max, double fallback)
+        {
+            if (max < min)
+            {
+                // 放不下：统一贴到起始边（min），但不低于 fallback。
+                //
+                // 为什么不保留 value：value 本身可能比 min 更靠外（甚至为负），
+                // 那会让窗口左上角跑到屏幕外，用户连标题栏都看不到。
+                // 「贴住起始边」是可预测的：至少能看到窗口的开头。
+                return Math.Max(fallback, min);
+            }
+            return Math.Clamp(value, min, max);
+        }
+    }
+
     public static class TimeText
     {
         /// <summary>相对时长。时钟回拨会算出负值，夹到 0 就是「刚刚」</summary>

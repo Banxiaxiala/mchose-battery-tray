@@ -134,11 +134,13 @@ namespace PeripheralBattery
                 if (args.Length > 3) int.TryParse(args[3], out range);
                 bool light = Array.IndexOf(args, "--light") >= 0;
                 int width = 0;
+                int repeat = 1;
                 for (int i = 0; i + 1 < args.Length; i++)
                 {
                     if (args[i] == "--width") int.TryParse(args[i + 1], out width);
+                    if (args[i] == "--repeat") int.TryParse(args[i + 1], out repeat);
                 }
-                Tools.CardPreview.Run(output, style, range, light, width);
+                Tools.CardPreview.Run(output, style, range, light, width, repeat);
                 return;
             }
 
@@ -709,7 +711,29 @@ namespace PeripheralBattery
 
                 devices.Add(device);
             }
-            _card.Render(devices);
+
+            // 按设置截断：卡片最多显示 N 台（默认 5）。
+            //
+            // 为什么在「渲染前」而不是「采集前」截断：被省略的设备仍然
+            // 要参与托盘环、悬停提示与低电量提醒 —— 只是不进卡片。
+            // 所以数据照采，只在交给卡片时砍掉多余的。
+            //
+            // 排序已经按「电量从低到高」做过（BatteryCard.Render 里），
+            // 所以留前 N 台 = 留最需要关注的 N 台。
+            int limit = Settings.ClampMaxCardDevices(_settings.MaxCardDevices);
+            int omitted = 0;
+            if (devices.Count > limit)
+            {
+                // Render 内部会再排序，这里先按同样规则排好再截断，
+                // 保证「留下的是电量最低的」而不是「表里靠前的」。
+                devices = devices
+                    .OrderBy(d => d.Percent ?? int.MaxValue)
+                    .ToList();
+                omitted = devices.Count - limit;
+                devices = devices.Take(limit).ToList();
+            }
+
+            _card.Render(devices, omitted);
         }
 
         // ============================================================ 探测

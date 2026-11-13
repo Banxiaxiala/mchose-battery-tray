@@ -7,6 +7,7 @@
 
 using System.Collections.Generic;
 using PeripheralBattery.Hardware;
+using PeripheralBattery.Services;
 
 namespace PeripheralBattery.Tests
 {
@@ -144,6 +145,105 @@ namespace PeripheralBattery.Tests
             Assert.NotNull(Protocols.RazerModelName("", 0x0555), "实测耳机在表里");
             Assert.NotNull(Protocols.RazerModelName("", 0x00BE), "新鼠标在表里");
             Assert.NotNull(Protocols.RazerModelName("", 0x025C), "键盘在表里");
+        }
+
+        // ============================================================ 卡片容量上限
+        //
+        // 设备一多，卡片高度会超过屏幕工作区（实测 14 台约 2900 DIP）。
+        // 除了「自动限高 + 滚动」兜底，还加了一个显式的显示上限。
+
+        [Test]
+        public static void MaxCardDevicesDefaultsToFive()
+        {
+            Assert.Equal(5, new Settings().MaxCardDevices, "默认最多显示 5 台");
+        }
+
+        [Test]
+        public static void MaxCardDevicesIsClamped()
+        {
+            Assert.Equal(1, Settings.ClampMaxCardDevices(0), "下限 1");
+            Assert.Equal(1, Settings.ClampMaxCardDevices(-5), "负数拉回下限");
+            Assert.Equal(8, Settings.ClampMaxCardDevices(99), "上限 8");
+            Assert.Equal(5, Settings.ClampMaxCardDevices(5), "区间内不变");
+        }
+
+        [Test]
+        public static void MaxCardDevicesSurvivesRoundTrip()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + System.Guid.NewGuid().ToString("N"));
+            try
+            {
+                var settings = new Settings { MaxCardDevices = 3 };
+                settings.SaveTo(dir);
+
+                var reloaded = Settings.LoadFrom(dir);
+                Assert.Equal(3, reloaded.MaxCardDevices, "上限要落盘");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(dir, true); } catch (System.Exception) { }
+            }
+        }
+
+        [Test]
+        public static void SanitizeClampsMaxCardDevices()
+        {
+            // 手改配置写了 0 或 999，Sanitize 要拉回合法范围
+            var settings = new Settings { MaxCardDevices = 999 };
+            settings.Sanitize();
+            Assert.Equal(8, settings.MaxCardDevices, "越界值被夹到上限");
+
+            settings.MaxCardDevices = 0;
+            settings.Sanitize();
+            Assert.Equal(1, settings.MaxCardDevices, "0 被夹到下限");
+        }
+
+        // ============================================================ 屏幕坐标夹取
+        //
+        // 实测崩溃：14 台设备时卡片高约 2900 DIP，工作区只有 1019，
+        // 于是 work.Bottom - height - 8 算出负数，Math.Clamp 抛
+        // "max cannot be less than min"。用户截图就是这个。
+
+        [Test]
+        public static void ScreenClampNormalRange()
+        {
+            Assert.Equal(50.0, Models.ScreenClamp.Into(50, 0, 100, 0), "区间内原样返回");
+            Assert.Equal(0.0, Models.ScreenClamp.Into(-20, 0, 100, 0), "低于下限被夹");
+            Assert.Equal(100.0, Models.ScreenClamp.Into(200, 0, 100, 0), "高于上限被夹");
+        }
+
+        [Test]
+        public static void ScreenClampToleratesMinGreaterThanMax()
+        {
+            // 这就是崩溃场景：窗口比工作区还大。
+            // 正确行为是贴住起始边，绝不抛异常，也不能跑到负坐标。
+            double result = Models.ScreenClamp.Into(-73.33, 8, -73.33 - 0.01, 0);
+            Assert.True(result >= 0, "不能是负坐标：" + result);
+
+            // 真实数字：工作区 1019，卡片高 2900
+            double workTop = 0, workBottom = 1019, height = 2900;
+            double min = workTop + 8;              // 8
+            double max = workBottom - height - 8;  // -1889
+            Assert.True(max < min, "这个场景下 max 确实小于 min（前提成立）");
+
+            double y = Models.ScreenClamp.Into(1200, min, max, workTop);
+            Assert.True(y >= workTop, "结果不能小于工作区顶部：" + y);
+            Assert.True(y <= min, "应贴住起始边而不是越界：" + y);
+        }
+
+        [Test]
+        public static void ScreenClampFallsBackToStartEdge()
+        {
+            // 放不下时统一贴起始边（min），但不低于 fallback。
+            // 保留原始 value 是不行的：它可能比 min 更靠外甚至为负，
+            // 那样窗口左上角会跑到屏幕外。
+            Assert.Equal(8.0, Models.ScreenClamp.Into(-500, 8, -100, 0),
+                "越界到负值 → 贴住 min");
+            Assert.Equal(8.0, Models.ScreenClamp.Into(5, 8, -100, 0),
+                "即使 value 略小于 min，也统一贴 min");
+            Assert.Equal(20.0, Models.ScreenClamp.Into(5, 8, -100, 20),
+                "fallback 比 min 更大时取 fallback");
         }
 
         // ============================================================ 协议名解析

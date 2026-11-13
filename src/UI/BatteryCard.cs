@@ -230,6 +230,8 @@ namespace PeripheralBattery.UI
                 Height = FixedHeight;
                 _cardBorder.Height = FixedHeight;
                 EnsureScrollHost();
+                // 用户显式设了高度：不要再自动改，尊重他的选择
+                AutoHeightActive = false;
             }
             else
             {
@@ -237,6 +239,8 @@ namespace PeripheralBattery.UI
                 _cardBorder.Height = double.NaN;
                 Height = double.NaN;
                 RemoveScrollHost();
+                // 用户切回「自动高度」时，允许 Reposition 重新判断要不要限高
+                AutoHeightActive = true;
             }
             Reposition();
         }
@@ -302,6 +306,28 @@ namespace PeripheralBattery.UI
             if (height <= 0) return;
 
             var work = SystemParameters.WorkArea;
+
+            // 内容比工作区还高时（设备一多就会），先自动收成「限高 + 滚动条」，
+            // 再按新高度定位。否则卡片上半部分永远在屏幕外，用户根本够不到。
+            // 这一步必须在取 height 之后、算坐标之前做，因为限高会改变高度。
+            double available = work.Height - 16;
+            if (AutoHeightActive && height > available)
+            {
+                AutoHeightActive = false;      // 防递归：ApplyMetrics 里会再调 Reposition
+                try
+                {
+                    SizeToContent = SizeToContent.Manual;
+                    Height = available;
+                    _cardBorder.Height = available;
+                    EnsureScrollHost();
+                }
+                finally
+                {
+                    AutoHeightActive = true;
+                }
+                UpdateLayout();
+                height = available;
+            }
             double x, y;
 
             if (Anchor.HasValue)
@@ -316,10 +342,42 @@ namespace PeripheralBattery.UI
                 y = work.Bottom - height - 56;
             }
 
-            x = Math.Clamp(x, work.Left + 8, work.Right - width - 8);
-            y = Math.Clamp(y, work.Top + 8, work.Bottom - height - 8);
+            // ⚠️ 绝不能直接 Math.Clamp(x, min, max)：
+            // 卡片比工作区还大时（设备一多就会），max = work.Right - width - 8
+            // 会小于 min = work.Left + 8，Math.Clamp 直接抛
+            // "max cannot be less than min"。
+            // 这是实测崩溃：14 台设备时卡片高度约 1800px，工作区只有 1019px。
+            ClampInto(ref x, work.Left + 8, work.Right - width - 8, work.Left);
+            ClampInto(ref y, work.Top + 8, work.Bottom - height - 8, work.Top);
             Left = x;
             Top = y;
+        }
+
+        /// <summary>
+        /// 是否允许 Reposition 自动启用「限高 + 滚动」。
+        ///
+        /// 用户显式设了固定高度时置 false（尊重用户选择）；
+        /// 自动高度时置 true，内容超出工作区就自动收起来。
+        /// 同时兼作防递归标志 —— 限高后会再调一次 Reposition。
+        /// </summary>
+        private bool AutoHeightActive = true;
+
+        /// <summary>
+        /// 把坐标夹进 [min, max]，但**容忍 min &gt; max**。
+        ///
+        /// 为什么会 min &gt; max：卡片尺寸由内容决定，设备一多就会超过
+        /// 屏幕工作区。此时 max 算出来是负数，Math.Clamp 会抛异常。
+        ///
+        /// 这种情况下的正确行为是**贴住起始边**：宁可让卡片底部超出屏幕
+        /// （用户还能滚动），也不能崩。所以 min &gt; max 时直接取 fallback
+        /// （通常是 work.Left / work.Top）。
+        /// </summary>
+        private static void ClampInto(ref double value, double min, double max,
+            double fallback)
+        {
+            // 实现在 Models.ScreenClamp，UI 只做 ref 转接 ——
+            // 这样那段「min>max 不能崩」的逻辑能被脱机断言覆盖。
+            value = ScreenClamp.Into(value, min, max, fallback);
         }
 
         private bool _armed;
@@ -391,7 +449,14 @@ namespace PeripheralBattery.UI
         }
 
         // ============================================================ 构建
-        public void Render(List<CardDevice> devices)
+        /// <summary>
+        /// 渲染卡片。
+        ///
+        /// omitted：因为超过「最多显示 N 台」而被省略的设备数。
+        /// 必须明确告诉用户「还有 N 台没显示」，否则他会以为
+        /// 那几台设备没被读到 —— 而不是「被设置限制隐藏了」。
+        /// </summary>
+        public void Render(List<CardDevice> devices, int omitted = 0)
         {
             ResetDismissState();
             _root.Children.Clear();
@@ -431,7 +496,18 @@ namespace PeripheralBattery.UI
                 first = false;
             }
 
-            // 切换条放在所有设备之后：它同时控制三台设备的图表样式，
+            // 被省略的设备要明说，否则用户会以为那几台读不到
+            if (omitted > 0)
+            {
+                var note = MakeText(
+                    "另有 " + omitted + " 台设备未显示（可在设置里调「卡片最多显示」）",
+                    9, FaintBrush());
+                note.TextWrapping = TextWrapping.Wrap;
+                note.Margin = new Thickness(0, 8, 0, 0);
+                _root.Children.Add(note);
+            }
+
+            // 切换条放在所有设备之后：它同时控制多台设备的图表样式，
             // 放在最前会给人「只对第一台生效」的错觉。
             _root.Children.Add(BuildChartSwitch());
         }

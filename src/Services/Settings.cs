@@ -75,6 +75,32 @@ namespace PeripheralBattery.Services
         [JsonPropertyName("chart_range_hours")]
         public int ChartRangeHours { get; set; } = 24;
 
+        // ---------------------------------------------------------- 卡片容量
+        /// <summary>
+        /// 卡片最多显示多少台设备。
+        ///
+        /// 为什么需要上限：卡片高度由内容决定，一台设备约 130 DIP。
+        /// 设备多了总高度会超过屏幕工作区 —— 实测 14 台时约 2900 DIP，
+        /// 而 1080p 的工作区只有 1019。虽然加了自动限高 + 滚动条兜底，
+        /// 但「一屏塞十几台、每台只剩一条」的观感很差。
+        ///
+        /// 取 5：1920×1080 下 5 台约 650 DIP，加上标题栏仍在一屏内，
+        /// 不需要滚动就能看全。超过 5 台的设备不进卡片，但仍会在托盘环上
+        /// 出现（环位按启用顺序排，最多 3 圈），悬停提示与低电量提醒也照常。
+        /// </summary>
+        public const int MaxCardDevicesMin = 1;
+        public const int MaxCardDevicesMax = 8;
+        public const int DefaultMaxCardDevices = 5;
+
+        /// <summary>卡片最多显示几台设备</summary>
+        [JsonPropertyName("max_card_devices")]
+        public int MaxCardDevices { get; set; } = DefaultMaxCardDevices;
+
+        public static int ClampMaxCardDevices(int value)
+        {
+            return Math.Clamp(value, MaxCardDevicesMin, MaxCardDevicesMax);
+        }
+
         // ---------------------------------------------------------- 设备开关
         /// <summary>
         /// 被关闭的设备（history key 列表）。
@@ -234,6 +260,7 @@ namespace PeripheralBattery.Services
             CardHeight = ClampCardHeight(CardHeight);
             ChartStyle = ClampChartStyle(ChartStyle);
             ChartRangeHours = ClampChartRange(ChartRangeHours);
+            MaxCardDevices = ClampMaxCardDevices(MaxCardDevices);
 
             // 手改配置可能留下空串或重复项，会导致「同一条被关两次」这类怪相
             DisabledDevices ??= new List<string>();

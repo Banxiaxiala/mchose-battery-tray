@@ -13,13 +13,15 @@
 [![Tests](https://img.shields.io/badge/tests-232%20passed-success?style=flat-square)](#测试)
 [![Devices](https://img.shields.io/badge/devices-60%2B%20models-informational?style=flat-square)](#兼容性)
 
-<img src="assets/tray-taskbar.svg" width="680" alt="外设电量 —— 任务栏托盘图标（浅色主题）与放大特写">
+<!-- 图片带 ?v= 版本号：GitHub 的 camo 图片代理按 URL 缓存，
+     SVG 内容变了但路径没变时它仍返回旧图。改图时把 v 递增即可强制刷新。 -->
+<img src="assets/tray-taskbar.svg?v=2" width="680" alt="外设电量 —— 任务栏托盘图标（浅色主题）与放大特写">
 
 <sub>任务栏上只有一个图标；环数 = 设备数，弧长即电量。<br>
 跟随系统主题：浅色任务栏（上图）与深色任务栏（下图）。<br>
 下面是卡片界面 👇</sub>
 
-<img src="assets/tray-taskbar-dark.svg" width="680" alt="外设电量 —— 任务栏托盘图标（深色主题）与放大特写">
+<img src="assets/tray-taskbar-dark.svg?v=2" width="680" alt="外设电量 —— 任务栏托盘图标（深色主题）与放大特写">
 
 </div>
 

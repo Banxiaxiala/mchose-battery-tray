@@ -71,6 +71,7 @@ def main():
         "tests/PeripheralBattery.Tests.csproj",
         # README 引用的图，缺了就是死链
         "assets/architecture.svg", "assets/fallback-chain.svg",
+        "assets/tray-taskbar.svg", "assets/tray-taskbar-dark.svg",
         "assets/dataflow.svg", "assets/storage-layers.svg",
     ]
     missing = [r for r in required if not os.path.exists(os.path.join(ROOT, r))]

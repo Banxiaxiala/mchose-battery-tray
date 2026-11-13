@@ -169,10 +169,13 @@ namespace PeripheralBattery.Tools
 
             // 见上面注释：不用 light 参数决定底色，恒用深色。
             // light 参数只影响特写区底板（浅色页面下用深灰，深色页面下用更深）。
-            string barColor = "#1F1F1F";
-            string border = "#3A3A3A";
+            // 仿 Win11 任务栏。真实的是「背景模糊 + 半透明深灰」，
+            // SVG 没有模糊滤镜，用中性灰 + 顶部 1px 高光近似 ——
+            // 目标是让人一眼认出「这是 Win11 任务栏」，不是复刻像素。
+            string barColor = "#2B2B2B";
+            string border = "#3D3D3D";
             string text = "#FFFFFF";
-            string muted = "#B8B8B8";
+            string muted = "#C9C9C9";
 
             var sb = new StringBuilder();
             sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
@@ -180,30 +183,49 @@ namespace PeripheralBattery.Tools
                 $"height=\"{height}\" viewBox=\"0 0 {width} {height}\" " +
                 "font-family=\"'Segoe UI','Microsoft YaHei UI',sans-serif\">");
 
-            // 任务栏底板 + 上边框（只占上半部分，下半留给特写）
+            // 任务栏底板 + 顶部高光（只占上半部分，下半留给特写）
             sb.AppendLine($"<rect width=\"{width}\" height=\"{barHeight}\" fill=\"{barColor}\"/>");
-            sb.AppendLine($"<rect x=\"0\" y=\"0\" width=\"{width}\" height=\"1\" fill=\"{border}\"/>");
+            sb.AppendLine($"<rect x=\"0\" y=\"0\" width=\"{width}\" height=\"1\" " +
+                $"fill=\"{border}\" fill-opacity=\"0.9\"/>");
 
-            // 左端：开始按钮（四个小方块，Windows 徽标示意）
-            double bx = 16, by = barHeight / 2.0 - 8;
+            double centerY = barHeight / 2.0;
+
+            // 居中的图标组 —— 「图标居中」是 Win11 与 Win10 最明显的区别。
+            // 三个抽象图形：开始（四格）、搜索（放大镜）、任务视图（套叠方块）。
+            double appStart = width / 2.0 - 52;
+            double appY = centerY - 10;
+
             for (int i = 0; i < 2; i++)
             {
                 for (int j = 0; j < 2; j++)
                 {
-                    sb.AppendLine($"<rect x=\"{N(bx + i * 9)}\" y=\"{N(by + j * 9)}\" " +
-                        "width=\"7\" height=\"7\" rx=\"1\" " +
+                    sb.AppendLine($"<rect x=\"{N(appStart + i * 11)}\" y=\"{N(appY + j * 11)}\" " +
+                        "width=\"9\" height=\"9\" rx=\"1.5\" " +
                         $"fill=\"{(light ? "#0067C0" : "#60CDFF")}\"/>");
                 }
             }
 
+            double sx = appStart + 42, sy = appY + 10;
+            sb.AppendLine($"<circle cx=\"{N(sx)}\" cy=\"{N(sy)}\" r=\"7\" " +
+                $"fill=\"none\" stroke=\"{muted}\" stroke-width=\"1.8\"/>");
+            sb.AppendLine($"<path d=\"M {N(sx + 5.5)} {N(sy + 5.5)} l 5 5\" " +
+                $"stroke=\"{muted}\" stroke-width=\"1.8\" stroke-linecap=\"round\"/>");
+
+            double vx = appStart + 82, vy = appY + 1;
+            sb.AppendLine($"<rect x=\"{N(vx)}\" y=\"{N(vy + 3)}\" width=\"17\" height=\"15\" " +
+                $"rx=\"2.5\" fill=\"none\" stroke=\"{muted}\" stroke-width=\"1.6\"/>");
+            sb.AppendLine($"<rect x=\"{N(vx + 4)}\" y=\"{N(vy)}\" width=\"17\" height=\"15\" " +
+                $"rx=\"2.5\" fill=\"none\" stroke=\"{muted}\" stroke-width=\"1.6\" " +
+                "stroke-opacity=\"0.55\"/>");
+
             // 右端：系统图标位（网络 / 音量 / 电池的抽象形状，不画细节）
             double rightEdge = width - 20;
 
-            // 时钟
-            sb.AppendLine($"<text x=\"{N(rightEdge) }\" y=\"{N(barHeight / 2.0 + 4)}\" " +
-                $"font-size=\"11\" fill=\"{text}\" text-anchor=\"end\">14:20</text>");
-            sb.AppendLine($"<text x=\"{N(rightEdge) }\" y=\"{N(barHeight / 2.0 + 18)}\" " +
-                $"font-size=\"10\" fill=\"{muted}\" text-anchor=\"end\">2026/11/13</text>");
+            // 时钟：两行右对齐（Win11 的排法）
+            sb.AppendLine($"<text x=\"{N(rightEdge)}\" y=\"{N(centerY - 2)}\" " +
+                $"font-size=\"11.5\" fill=\"{text}\" text-anchor=\"end\">14:20</text>");
+            sb.AppendLine($"<text x=\"{N(rightEdge)}\" y=\"{N(centerY + 12)}\" " +
+                $"font-size=\"11\" fill=\"{muted}\" text-anchor=\"end\">2026/11/13</text>");
 
             // 本程序的托盘图标（三个三环，代表三台设备都在）
             var rings = new[]
@@ -211,14 +233,14 @@ namespace PeripheralBattery.Tools
                 Make(82), Make(51), Make(24),
             };
             double iconX = rightEdge - 104;
-            sb.AppendLine($"<g transform=\"translate({N(iconX)},{N(barHeight / 2.0 - iconSize / 2.0)})\">");
+            sb.AppendLine($"<g transform=\"translate({N(iconX)},{N(centerY - iconSize / 2.0)})\">");
             AppendIcon(sb, rings, text, iconSize);
             sb.AppendLine("</g>");
 
             // 展开箭头（系统托盘里的「^」）
-            sb.AppendLine($"<path d=\"M {N(iconX + 40)} {N(barHeight / 2.0 - 2)} " +
-                $"l 4 4 l 4 -4\" fill=\"none\" stroke=\"{muted}\" " +
-                "stroke-width=\"1.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>");
+            sb.AppendLine($"<path d=\"M {N(iconX + 42)} {N(centerY - 3)} " +
+                $"l 4.5 4.5 l 4.5 -4.5\" fill=\"none\" stroke=\"{muted}\" " +
+                "stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>");
 
             // ---- 下半：放大特写 ----
             //
@@ -227,9 +249,9 @@ namespace PeripheralBattery.Tools
             // 之前这里错用了任务栏的白色文字，放进 README 后图例完全看不见。
             double zoomSize = iconSize * zoom;
             double zoomX = 44;
-            double zoomY = barHeight + 48;
+            double zoomY = barHeight + 56;
 
-            sb.AppendLine($"<text x=\"{N(zoomX)}\" y=\"{N(barHeight + 34)}\" " +
+            sb.AppendLine($"<text x=\"{N(zoomX)}\" y=\"{N(barHeight + 30)}\" " +
                 "font-size=\"12\" fill=\"#57606A\">" +
                 $"托盘图标 · 放大 {zoom} 倍</text>");
 

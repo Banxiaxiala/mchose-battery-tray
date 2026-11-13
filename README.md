@@ -9,13 +9,13 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](#授权)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
-[![Size](https://img.shields.io/badge/single%20exe-493%20KB-blue?style=flat-square)](#性能)
+[![Size](https://img.shields.io/badge/single%20exe-494%20KB-blue?style=flat-square)](#性能)
 [![Tests](https://img.shields.io/badge/tests-232%20passed-success?style=flat-square)](#测试)
 [![Devices](https://img.shields.io/badge/devices-60%2B%20models-informational?style=flat-square)](#兼容性)
 
 <img src="assets/tray-taskbar.svg" width="680" alt="外设电量 —— 任务栏托盘图标（三环）与放大特写">
 
-<sub>任务栏上只有一个图标，三圈同心环对应三台设备；弧长即电量。<br>
+<sub>任务栏上只有一个图标；环数 = 设备数，弧长即电量。<br>
 下面是卡片界面 👇</sub>
 
 </div>
@@ -107,10 +107,21 @@ Windows 自带的蓝牙电量只在「设置 → 蓝牙」里，一关窗口就�
 
 <p align="center"><img src="assets/tray-states-light.svg" width="880" alt="浅色任务栏下的托盘图标"></p>
 
-下面每格同时给出**放大 6 倍**与**1:1 实际尺寸**：24px 是任务栏上真实看到的
-大小，三圈在这个尺寸下必须仍然可分。几何参数是按 24px 反推的
-（半径 10.3 / 7.0 / 3.8，描边 2.6 / 2.4 / 2.4），相邻净间隙只有 0.8px ——
-再粗一点三圈就会粘连成一坨。
+下面每格同时给出**放大 5 倍**与**1:1 实际尺寸**：24px 才是任务栏上
+真实看到的大小。
+
+几何参数按环数自适应（都是按 24px 反推的）：
+
+| 设备数 | 半径 | 描边 | 相邻净间隙 |
+|---|---|---|---|
+| 1 | 10.2 | **3.4** | —（无相邻圈，可以更粗） |
+| 2 | 10.3 / 6.0 | 2.8 | 1.5px |
+| 3 | 10.3 / 7.0 / 3.8 | 2.6 / 2.4 / 2.4 | 0.8px |
+
+三环的 0.8px 是实测穷举出的「三圈仍可分」下限，再粗就会粘连成一坨。
+
+> 上面的示例图是**三台设备**的情形。只有一台时画单圈、描边 3.4 ——
+> 比三环外圈粗 30%，弧长在 24px 上更容易读出来。
 
 四档配色：**充足 绿 → 一般 黄 → 偏低 橙 → 告急 红**，充电时整圈点亮变绿。
 四个颜色必须能在 24px 上互相区分 —— 早期版本「一般」是橙、「偏低」是红、
@@ -486,7 +497,7 @@ dotnet run --project tests\PeripheralBattery.Tests.csproj
 
 | 指标 | 数值 |
 |---|---|
-| 单文件 exe | 493 KB（framework-dependent） |
+| 单文件 exe | 494 KB（framework-dependent） |
 | 运行时代码 | 约 9,100 行（25 个文件） |
 | 内存占用 | 私有约 39 MB / 工作集约 94 MB（WPF + 亚克力实测） |
 | 罗技读取 | ~130 ms（含两遍槽位探测） |

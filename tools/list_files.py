@@ -64,9 +64,9 @@ def main():
     required = [
         "README.md", "ARCHITECTURE.md", "AGENTS.md", "HANDOVER.md",
         "build.bat", ".gitignore",
-        "src-cs/PeripheralBattery.csproj",
-        "src-cs/Program.cs",
-        "src-cs.Tests/PeripheralBattery.Tests.csproj",
+        "src/PeripheralBattery.csproj",
+        "src/Program.cs",
+        "tests/PeripheralBattery.Tests.csproj",
     ]
     missing = [r for r in required if not os.path.exists(os.path.join(ROOT, r))]
     print()

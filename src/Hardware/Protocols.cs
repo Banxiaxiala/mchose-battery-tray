@@ -378,6 +378,89 @@ namespace PeripheralBattery.Hardware
             return reply[15];
         }
 
+        // ============================================================ 蓝牙（系统属性通道）
+        //
+        // 耳机（雷蛇）和键盘（维咖）都支持蓝牙，但蓝牙模式下都没有厂商 HID
+        // 私有命令可用，只能读 Windows 自己维护的电量属性：
+        //   DEVPKEY_Bluetooth_Battery = {104EA319-…} 2
+        //
+        // 坑：同一个蓝牙设备在 PnP 里会展开成一串节点，电量只会挂在其中
+        // 某一个上。实测本机：
+        //   耳机 BlackShark V2 Pro BT（经典蓝牙 / BTHENUM）
+        //     BTHENUM\DEV_445ECD407C2A\…            ← 链路状态在这里（IsConnected=True）
+        //     BTHENUM\{0000110B-…}_A2DP…\…         ← 无电量
+        //     BTHENUM\{0000111E-…}_Hands-Free AG\…  ← ★ 电量在这里（100%）
+        //   键盘 MAX102-BT1（低功耗 / BTHLE）
+        //     BTHLE\DEV_C00672D99623\…              ← 电量与链路状态都在这里
+        //
+        // 所以两条规则：电量按名字前缀找，在线状态按 MAC 聚合。
+
+        /// <summary>
+        /// 经典蓝牙音频服务（A2DP / HFP / AVRCP 等）的 InstanceId 特征。
+        ///
+        /// 必须先过滤再读属性：BTHENUM 树下还有蓝牙串口、蓝牙鼠标、传真等
+        /// 一堆无关节点，它们同样可能有电量属性，混进来会串到别的设备上。
+        /// 实测音频服务的 InstanceId 形如
+        ///   BTHENUM\{0000111E-0000-1000-8000-00805F9B34FB}_LOCALMFG&amp;0002\…
+        ///   BTHENUM\{0000110B-…}_VID&amp;0001038F_PID&amp;0000\…
+        /// 共同点是 {} 里是 0000xxxx 形式的蓝牙 SIG 服务 UUID。
+        /// </summary>
+        public static bool IsBluetoothAudioInstance(string? instanceId)
+        {
+            if (string.IsNullOrEmpty(instanceId)) return false;
+            if (!instanceId!.StartsWith("BTHENUM", StringComparison.OrdinalIgnoreCase)) return false;
+
+            int open = instanceId.IndexOf('{');
+            int close = open < 0 ? -1 : instanceId.IndexOf('}', open + 1);
+            if (open < 0 || close < 0 || close - open < 5) return false;
+
+            string uuid = instanceId.Substring(open + 1, close - open - 1);
+            if (uuid.Length < 8) return false;
+
+            // 蓝牙 SIG 的 16 位服务号在 GUID 的**第一组后段**：
+            //   {0000111E-0000-1000-8000-00805F9B34FB}
+            //    ↑↑↑↑↑↑↑↑
+            //    0000 111E —— 前 4 位永远补零，真正的号在 offset 4。
+            // 早期写成前 4 位（Substring(0,4)）会得到 "0000"，
+            // 于是所有服务 UUID 都被当成未知，耳机蓝牙电量永远找不到。
+            string shortId = uuid.Substring(4, 4);
+            return BluetoothAudioServiceIds.Contains(shortId);
+        }
+
+        /// <summary>
+        /// 经典蓝牙音频服务短 UUID（小写）。覆盖耳机常用的全部音频相关服务：
+        /// 0x110A A2DP Source、0x110B A2DP Sink、0x110E AVRCP Target、
+        /// 0x110C AVRCP、0x1108 Headset、0x1112 Headset AG、
+        /// 0x111E Hands-Free、0x111F Hands-Free AG。
+        /// 少一个就可能漏掉某些固件把电量只挂在那个服务上的情况。
+        /// </summary>
+        private static readonly HashSet<string> BluetoothAudioServiceIds =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                "110a", "110b", "110c", "110d", "110e", "110f",
+                "1108", "1109", "1112", "1113", "111e", "111f",
+            };
+
+        /// <summary>
+        /// 蓝牙通道的状态文案与在线判定。
+        ///
+        /// charging 三态：1 = 充电中、0 = 未充电、-1 = 系统没提供充电属性。
+        /// 本机实测 BTHENUM 上的 pid 3 恒缺失，所以绝大多数情况都是 -1，
+        /// 必须如实说「充电状态未知」，不能默认成「放电中」。
+        /// </summary>
+        public static BluetoothState InterpretBluetoothState(bool connected, int charging)
+        {
+            string status = connected ? "蓝牙已连接" : "蓝牙离线";
+            if (charging > 0) status += "（充电中）";
+            else if (connected && charging < 0) status += "（充电状态未知）";
+            return new BluetoothState
+            {
+                Connected = connected,
+                Charging = charging > 0,
+                Status = status,
+            };
+        }
+
         // ============================================================ 维咖解析
 
         /// <summary>构造 33 字节 VIA 请求：[00, cmd, payload…] 补零</summary>
@@ -535,6 +618,54 @@ namespace PeripheralBattery.Hardware
         }
 
         /// <summary>
+        /// 从蓝牙 PnP 友好名里剥出型号。
+        ///
+        /// 实测两种形态，都要能处理：
+        ///   Razer BlackShark V2 Pro BT              → BlackShark V2 Pro
+        ///   Razer BlackShark V2 Pro BT Hands-Free AG → BlackShark V2 Pro
+        /// 尾巴上的 "BT" 是 Windows 加的链接方式标记，不是型号的一部分；
+        /// "Hands-Free AG" / "Avrcp Transport" 是服务名，更不能进标题。
+        /// </summary>
+        public static string RazerModelNameFromBluetooth(string? friendlyName)
+        {
+            string name = (friendlyName ?? "").Trim();
+            if (name.Length == 0) return "Razer 无线耳机";
+
+            // 服务后缀：先砍掉，否则 "BT Hands-Free" 会粘连到型号里
+            foreach (string suffix in BluetoothServiceSuffixes)
+            {
+                int idx = name.IndexOf(suffix, StringComparison.OrdinalIgnoreCase);
+                if (idx > 0) name = name.Substring(0, idx).Trim();
+            }
+
+            // 品牌前缀："Razer XXX" 剥成 "XXX"；只剩品牌名时下面会兜底
+            if (name.StartsWith("Razer ", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("RAZER ", StringComparison.OrdinalIgnoreCase))
+            {
+                name = name.Substring(6);
+            }
+            else if (name.Equals("Razer", StringComparison.OrdinalIgnoreCase))
+            {
+                name = "";
+            }
+
+            // Windows 在经典蓝牙友好名末尾固定追加 " BT"，去掉
+            if (name.EndsWith(" BT", StringComparison.OrdinalIgnoreCase))
+            {
+                name = name.Substring(0, name.Length - 3).Trim();
+            }
+
+            return name.Length > 0 ? name : "Razer 无线耳机";
+        }
+
+        /// <summary>蓝牙友好名里的服务名后缀（长串优先匹配）</summary>
+        private static readonly string[] BluetoothServiceSuffixes =
+        {
+            " Hands-Free AG", " Hands-Free", " Avrcp Transport", " Avrcp ",
+            " Audio SNK", " A2DP",
+        };
+
+        /// <summary>
         /// MAX102 型号名。2.4G 下 product_string 是 "MAX102-2.4G"，
         /// USB 下是 "MAX102"，都统一显示成大写的物理型号。
         /// </summary>
@@ -552,6 +683,14 @@ namespace PeripheralBattery.Hardware
 
     /// <summary>雷蛇耳机三字节映射后的界面状态</summary>
     public struct RazerState
+    {
+        public bool Connected;
+        public string Status;
+        public bool Charging;
+    }
+
+    /// <summary>蓝牙（系统属性）通道映射后的界面状态</summary>
+    public struct BluetoothState
     {
         public bool Connected;
         public string Status;

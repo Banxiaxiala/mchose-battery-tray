@@ -9,8 +9,8 @@
 ## 分层
 
 ```
-build.bat                       一键构建：杀进程 → 测试 → 编译 → 发布
-src-cs/                         生产代码
+build.bat                       一键构建：定位 SDK → 杀进程 → 测试 → 编译 → 发布
+src/                         生产代码
   PeripheralBattery.csproj      net8.0-windows + UseWPF + UseWindowsForms
   app.manifest                  PerMonitorV2 DPI、asInvoker、UTF-8 codepage
   GlobalUsings.cs               消除 WPF 与 WinForms 的 Color/Point/Brush 冲突
@@ -19,10 +19,10 @@ src-cs/                         生产代码
   Core/
     Win32.cs                    全项目唯一的 P/Invoke 声明入口
     Hid.cs                      HID 枚举、句柄、常驻挂起读（PendingRead）
-    BluetoothBattery.cs         BTHLE 节点电量属性（SetupAPI，不连设备）
+    BluetoothBattery.cs         BTHLE + BTHENUM 节点电量属性（SetupAPI，不连设备）
   Hardware/
     Protocols.cs                三套协议的纯解析/构造（零 I/O）
-    Readers.cs                  I/O 编排：罗技两遍槽位探测、雷蛇 64B 收发
+    Readers.cs                  I/O 编排：罗技两遍槽位探测、雷蛇 64B 收发 → 蓝牙回落
     Max102Reader.cs             维咖 MAX102：2.4G VIA 优先 → 蓝牙属性回落
   Services/
     History.cs                  样本存储、24h 分桶、续航预测、跳变过滤
@@ -39,9 +39,10 @@ src-cs/                         生产代码
     SettingsPanel.cs            设置面板
     Win32Cursor.cs              光标位置薄封装
   Tools/CardPreview.cs          --preview：合成数据渲染卡片并截图
-src-cs.Tests/                   85 项脱机断言（零硬件、零第三方框架）
-archive/python-prototype/       早期 Python 实现（协议基准，不再发布）
+tests/                          88 项脱机断言（零硬件、零第三方框架）
+docs/                           本文件、README、HANDOVER、AGENTS
 assets/preview.png              README 用图
+app.ico / icon.ico              应用图标（根目录，csproj 用 ..\app.ico 引用）
 ```
 
 依赖方向严格单向，下层不许 import 上层：
@@ -226,6 +227,11 @@ new("键盘", "max102",    2, new Max102Reader().Read),
 走 GATT 要 WinRT 的 BLE 栈（额外依赖）、已配对的 BLE HID 被系统独占
 （抢连接会影响键盘输入）。
 
+蓝牙通道对**耳机和键盘一视同仁**：都是「先厂商 HID 私有通道，失败再回落蓝牙」。
+耳机蓝牙下没有 `usagePage 0xFF00` 接口，键盘蓝牙下没有 `0xFF60/0x61` ——
+两者都只能借系统属性，所以两条 Reader 共用 `Core/BluetoothBattery.cs`
+与 `Protocols.InterpretBluetoothState`，避免两处文案/判定漂移。
+
 ⚠️ 系统属性**在设备离线时仍保留上次的值**。`Program.RefreshNow` 用
 `reading.Connected` 门住 `History.Add`，否则陈旧读数会在历史里
 伪造出一条水平曲线，把续航预测的斜率算成 0。
@@ -242,11 +248,32 @@ new("键盘", "max102",    2, new Max102Reader().Read),
 | 充电 | `status[2]` 状态码 | 命令 `0x2A` | **无**（固件没有检测） |
 | 在线 | 短集合错误帧 `10 <slot> 8F …` | 命令 `0x20` | `reply[5]` == 2，或 dongle 能应答 |
 
-蓝牙通道（维咖）：`BTHLE\DEV_<MAC>` 节点上的
-`{104EA319-…} 2`（Byte 电量）/ `7`（FILETIME 时间戳）/
-`{83DA6326-…} 15`（IsConnected）。
+### 蓝牙通道（耳机 + 键盘共用）
 
-详细字节布局见 `Hardware/Protocols.cs` 的注释与 `src-cs.Tests/ProtocolTests.cs`。
+两棵树都要枚举 —— 缺一棵就有一类设备永远读不到：
+
+| 设备 | 枚举器 | 电量节点 |
+|---|---|---|
+| 耳机 BlackShark V2 Pro BT（经典蓝牙） | `BTHENUM` | `{0000111E-…}` Hands-Free AG 服务子节点 |
+| 键盘 MAX102-BT1（低功耗） | `BTHLE` | `DEV_<MAC>` 父节点 |
+
+| 属性 | 含义 |
+|---|---|
+| `{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2` | Byte 电量 0–100 |
+| `{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 7` | FILETIME 时间戳 |
+| `{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 3` | 充电中布尔；**实测恒缺失** |
+| `{83DA6326-97A6-4088-9453-A1923F573B29} 15` | IsConnected |
+
+⚠️ **电量与在线状态不在同一节点上。** 蓝牙耳机的电量挂在音频服务
+子节点，而那个子节点的 `IsConnected` 恒为 `False`；真正表示链路在线
+的是同 MAC 的父节点 `BTHENUM\DEV_<MAC>`，它**没有**电量。所以
+`BluetoothBattery` 先按 MAC 聚合在线状态，再挂到带电量结果的节点上。
+拿子节点的 `IsConnected` 当结论，会在耳机正放着歌时显示「蓝牙离线」。
+
+⚠️ `BTHENUM` 树下还有蓝牙串口 / 鼠标 / 传真等无关节点，必须按
+`{0000xxxx-…}` 的音频服务 UUID 先过滤（`Protocols.IsBluetoothAudioInstance`）。
+
+详细字节布局见 `Hardware/Protocols.cs` 的注释与 `tests/ProtocolTests.cs`。
 
 ## API 成本与性能
 
@@ -254,7 +281,8 @@ new("键盘", "max102",    2, new Max102Reader().Read),
 |---|---|
 | 单文件 exe | 378 KB |
 | 罗技读取 | ~130ms（含两遍探测） |
-| 雷蛇读取 | ~55ms |
+| 雷蛇 2.4G 读取 | ~55ms |
+| 雷蛇蓝牙读取 | ~8ms（纯 PnP 属性查询，两棵树） |
 | 维咖 VIA 读取 | ~30ms |
 | 维咖蓝牙读取 | ~5ms（纯 PnP 属性查询） |
 | 空槽位排除 | ~6ms/槽位 |

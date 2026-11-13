@@ -304,13 +304,101 @@ namespace PeripheralBattery.Tests
         [Test]
         public static void BluetoothMacParsing()
         {
-            // 实测 InstanceId：BTHLE\DEV_C00672D99623\7&387A7373&0&C00672D99623
+            // 实测 InstanceId：BTHLE\DEV_C00672D99623\7&387A7373&0&C00672D99623（键盘，低功耗）
             Assert.Equal("C0:06:72:D9:96:23",
                 Core.BluetoothBattery.MacFromInstanceId(
                     "BTHLE\\DEV_C00672D99623\\7&387A7373&0&C00672D99623"),
-                "转成带冒号的大写 MAC");
+                "BTHLE 的 DEV_ 形态");
+
+            // 实测 InstanceId：耳机经典蓝牙服务节点，**没有 DEV_**，地址在最后一个 &0& 之后
+            Assert.Equal("44:5E:CD:40:7C:2A",
+                Core.BluetoothBattery.MacFromInstanceId(
+                    "BTHENUM\\{0000111E-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002"
+                    + "\\7&2B6A77E0&0&445ECD407C2A_C00000000"),
+                "BTHENUM 服务节点形态");
+
+            // 实测父节点：BTHENUM\DEV_445ECD407C2A\…BLUETOOTHDEVICE_445ECD407C2A
+            Assert.Equal("44:5E:CD:40:7C:2A",
+                Core.BluetoothBattery.MacFromInstanceId(
+                    "BTHENUM\\DEV_445ECD407C2A\\7&2B6A77E0&0&BLUETOOTHDEVICE_445ECD407C2A"),
+                "BTHENUM 的 DEV_ 形态要与服节点一致");
+
             Assert.Equal("", Core.BluetoothBattery.MacFromInstanceId("BTHLE\\nonsense"),
                 "拿不到地址时回空串");
+            Assert.Equal("", Core.BluetoothBattery.MacFromInstanceId(""), "空串不崩");
+        }
+
+        // ============================================================ 蓝牙服务过滤
+        //
+        // BTHENUM 树下混着蓝牙串口、蓝牙鼠标、传真等无关节点，
+        // 不过滤就会把别的设备的电量串到耳机上。
+
+        [Test]
+        public static void BluetoothAudioInstanceMatching()
+        {
+            Assert.True(Protocols.IsBluetoothAudioInstance(
+                "BTHENUM\\{0000111E-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002"
+                + "\\7&2B6A77E0&0&445ECD407C2A_C00000000"), "HFP AG 是音频服务");
+            Assert.True(Protocols.IsBluetoothAudioInstance(
+                "BTHENUM\\{0000110B-0000-1000-8000-00805F9B34FB}_VID&0001038F_PID&0000\\x"),
+                "A2DP Sink 是音频服务");
+            Assert.True(Protocols.IsBluetoothAudioInstance(
+                "BTHENUM\\{0000110e-0000-1000-8000-00805f9b34fb}_LOCALMFG&0002\\x"),
+                "小写 UUID 也要认");
+
+            // 实测：串口 / 传真 / 鼠标 都不是音频
+            Assert.False(Protocols.IsBluetoothAudioInstance(
+                "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0002\\x"),
+                "SPP 串口不是音频");
+            Assert.False(Protocols.IsBluetoothAudioInstance(
+                "BTHENUM\\{00001115-0000-1000-8000-00805F9B34FB}_VID&0001038F_PID&0000\\x"),
+                "PAN 不是音频");
+            Assert.False(Protocols.IsBluetoothAudioInstance(
+                "BTHLE\\DEV_C00672D99623\\7&387A7373&0&C00672D99623"),
+                "BTHLE 不走这条判定");
+            Assert.False(Protocols.IsBluetoothAudioInstance(null), "null 安全");
+        }
+
+        [Test]
+        public static void BluetoothStateMapping()
+        {
+            // 系统属性没有充电状态（pid 3 实测恒缺失），必须如实说未知
+            var live = Protocols.InterpretBluetoothState(connected: true, charging: -1);
+            Assert.True(live.Connected, "在线");
+            Assert.False(live.Charging, "充电状态未知不能当充电中");
+            Assert.True(live.Status.Contains("未知"), "要写状态未知：" + live.Status);
+
+            var charging = Protocols.InterpretBluetoothState(connected: true, charging: 1);
+            Assert.True(charging.Charging, "pid 3 = 1 是充电中");
+            Assert.True(charging.Status.Contains("充电中"), "文案：" + charging.Status);
+
+            var offline = Protocols.InterpretBluetoothState(connected: false, charging: -1);
+            Assert.False(offline.Connected, "离线");
+            Assert.True(offline.Status.Contains("离线"), "文案：" + offline.Status);
+            Assert.False(offline.Status.Contains("未知"),
+                "离线时不必再提充电状态：" + offline.Status);
+        }
+
+        [Test]
+        public static void RazerBluetoothModelName()
+        {
+            // 实测 PnP 友好名（本机 BlackShark V2 Pro 蓝牙模式）
+            Assert.Equal("BlackShark V2 Pro",
+                Protocols.RazerModelNameFromBluetooth("Razer BlackShark V2 Pro BT"),
+                "父节点名");
+            Assert.Equal("BlackShark V2 Pro",
+                Protocols.RazerModelNameFromBluetooth("Razer BlackShark V2 Pro BT Hands-Free AG"),
+                "服务节点名要脆掉尾部服务后缀");
+            Assert.Equal("BlackShark V2 Pro",
+                Protocols.RazerModelNameFromBluetooth("Razer BlackShark V2 Pro BT Avrcp Transport"),
+                "Avrcp 后缀");
+            Assert.Equal("Kraken V4",
+                Protocols.RazerModelNameFromBluetooth("Razer Kraken V4 Hands-Free AG"),
+                "没有 BT 尾巴");
+            Assert.Equal("Razer 无线耳机",
+                Protocols.RazerModelNameFromBluetooth(""), "空名走兜底");
+            Assert.Equal("Razer 无线耳机",
+                Protocols.RazerModelNameFromBluetooth("Razer"), "只留品牌名时也要兜底");
         }
 
         // ============================================================ 雷蛇在线判定

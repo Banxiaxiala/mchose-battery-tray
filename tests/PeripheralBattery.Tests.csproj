@@ -25,16 +25,16 @@
 
   <ItemGroup>
     <!-- 直接链接被测源码，避免把 WPF 窗体也拖进测试宿主 -->
-    <Compile Include="..\src-cs\Models\Models.cs" Link="Models\Models.cs" />
-    <Compile Include="..\src-cs\Models\TooltipText.cs" Link="Models\TooltipText.cs" />
-    <Compile Include="..\src-cs\Hardware\Protocols.cs" Link="Hardware\Protocols.cs" />
+    <Compile Include="..\src\Models\Models.cs" Link="Models\Models.cs" />
+    <Compile Include="..\src\Models\TooltipText.cs" Link="Models\TooltipText.cs" />
+    <Compile Include="..\src\Hardware\Protocols.cs" Link="Hardware\Protocols.cs" />
     <!-- 蓝牙电量只用到 SetupAPI 声明与 MAC 解析，不打开任何句柄 -->
-    <Compile Include="..\src-cs\Core\Win32.cs" Link="Core\Win32.cs" />
-    <Compile Include="..\src-cs\Core\BluetoothBattery.cs" Link="Core\BluetoothBattery.cs" />
-    <Compile Include="..\src-cs\Services\History.cs" Link="Services\History.cs" />
-    <Compile Include="..\src-cs\Services\Settings.cs" Link="Services\Settings.cs" />
-    <Compile Include="..\src-cs\UI\Palette.cs" Link="UI\Palette.cs" />
-    <Compile Include="..\src-cs\UI\TrayIconArt.cs" Link="UI\TrayIconArt.cs" />
+    <Compile Include="..\src\Core\Win32.cs" Link="Core\Win32.cs" />
+    <Compile Include="..\src\Core\BluetoothBattery.cs" Link="Core\BluetoothBattery.cs" />
+    <Compile Include="..\src\Services\History.cs" Link="Services\History.cs" />
+    <Compile Include="..\src\Services\Settings.cs" Link="Services\Settings.cs" />
+    <Compile Include="..\src\UI\Palette.cs" Link="UI\Palette.cs" />
+    <Compile Include="..\src\UI\TrayIconArt.cs" Link="UI\TrayIconArt.cs" />
   </ItemGroup>
 
 </Project>

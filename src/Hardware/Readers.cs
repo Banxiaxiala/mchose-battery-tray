@@ -385,6 +385,14 @@ namespace PeripheralBattery.Hardware
     public sealed class RazerReader
     {
         /// <summary>
+        /// 蓝牙通道的设备名前缀。实测的 PnP 友好名都以此开头：
+        ///   Razer BlackShark V2 Pro BT
+        ///   Razer BlackShark V2 Pro BT Hands-Free AG
+        /// 不能写死完整型号：换一款雷蛇耳机就失效了。
+        /// </summary>
+        private const string BluetoothNamePrefix = "Razer";
+
+        /// <summary>
         /// 发一条命令，失败重试一次。
         ///
         /// 必须重试：2.4G 空口会丢帧，单次尝试偶发失败就把整轮判成
@@ -431,6 +439,41 @@ namespace PeripheralBattery.Hardware
         }
 
         public (Reading? reading, string error) Read()
+        {
+            var (hidReading, hidError) = ReadWireless();
+            if (hidReading != null) return (hidReading, "");
+
+            var (btReading, btError) = ReadBluetooth();
+            if (btReading != null) return (btReading, "");
+
+            return (null, ChooseError(hidError, btError));
+        }
+
+        /// <summary>
+        /// 两条链路都失败时的文案。
+        ///
+        /// 三种组合要区别对待：
+        ///   * 两条都“没找到” → 耳机根本没连，合并成一句，别让用户以为要装驱动
+        ///   * 只有蓝牙没找到 → 报 2.4G 的错误（那才是用户能动手的方向：
+        ///     “耳机可能已休眠”比“系统未记录蓝牙电量”有用）
+        ///   * 其他情况 → 报蓝牙的错误（蓝牙能走通却失败，说明真是读不到）
+        /// </summary>
+        private static string ChooseError(string hidError, string btError)
+        {
+            bool hidMissing = hidError.IndexOf("没有找到", StringComparison.Ordinal) >= 0;
+            bool btMissing = btError.IndexOf("没有找到", StringComparison.Ordinal) >= 0;
+
+            if (hidMissing && btMissing)
+            {
+                return "耳机未连接（2.4G 接收器与蓝牙都没找到设备）";
+            }
+            if (btMissing) return hidError.Length > 0 ? hidError : btError;
+            if (!string.IsNullOrEmpty(btError)) return btError;
+            return string.IsNullOrEmpty(hidError) ? "耳机未连接" : hidError;
+        }
+
+        // ======================================================== 2.4G（PA/PI）
+        private (Reading? reading, string error) ReadWireless()
         {
             var all = HidEnumerator.Enumerate(Protocols.RazerVendor);
             Tracer.Section("雷蛇 HID 接口");
@@ -488,6 +531,54 @@ namespace PeripheralBattery.Hardware
                 }
             }
             return (null, lastError);
+        }
+
+        // ======================================================== 蓝牙（系统属性）
+        /// <summary>
+        /// 耳机在蓝牙模式下没有厂商私有 HID 通道（走的是 A2DP/HFP 标准服务），
+        /// 只能读 Windows 自己维护的电量属性。
+        ///
+        /// ⚠️ 电量挂在经典蓝牙（BTHENUM）的**音频服务子节点**上，
+        /// 例如 BTHENUM\{0000111E-…Hands-Free AG\…；而 DEV 父节点没有电量、
+        /// 但只有它带 DEVPKEY_Device_IsConnected=True。在线状态由
+        /// BluetoothBattery 按 MAC 聚合，这里不能拿子节点的 IsConnected 当结论
+        /// （实测恒为 False，会把正在放歌的耳机判成离线）。
+        /// </summary>
+        private (Reading? reading, string error) ReadBluetooth()
+        {
+            BluetoothBatteryInfo? info;
+            try
+            {
+                info = BluetoothBattery.QueryOne(BluetoothNamePrefix, classicAudioOnly: true);
+            }
+            catch (Exception exc)
+            {
+                return (null, "读蓝牙电量失败：" + exc.Message);
+            }
+
+            if (info == null)
+            {
+                return (null, "没有找到蓝牙模式的雷蛇耳机（系统未记录其电量）");
+            }
+            if (!info.Percent.HasValue)
+            {
+                return (null, "蓝牙耳机节点存在但系统还没读到电量");
+            }
+
+            Tracer.Note("蓝牙 " + info);
+
+            // 系统属性没有充电状态（pid 3 实测恒缺失），传 -1 让文案如实说「未知」
+            var state = Protocols.InterpretBluetoothState(info.Connected, charging: -1);
+
+            return (new Reading
+            {
+                Name = Protocols.RazerModelNameFromBluetooth(info.FriendlyName),
+                Percent = info.Percent,
+                Charging = state.Charging,
+                Connected = state.Connected,
+                Status = state.Status,
+                Transport = "蓝牙",
+            }, "");
         }
     }
 }

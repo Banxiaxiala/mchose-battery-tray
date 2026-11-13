@@ -1,4 +1,4 @@
-# ── Python 版（旧实现，保留作协议基准）──
+# ── Python 缓存（tools/ 下的辅助脚本）──
 __pycache__/
 *.py[cod]
 .venv/

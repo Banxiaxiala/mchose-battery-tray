@@ -513,10 +513,12 @@ namespace PeripheralBattery
             Console.WriteLine("[蓝牙电量属性]");
             try
             {
+                // 两棵树都要打：耳机在 BTHENUM（经典蓝牙），键盘在 BTHLE（低功耗）。
+                // 只看 BTHLE 会误判“系统没记录耳机电量”。
                 var nodes = BluetoothBattery.Query();
                 if (nodes.Count == 0)
                 {
-                    Console.WriteLine("  没有带电量属性的 BTHLE 节点");
+                    Console.WriteLine("  没有带电量属性的蓝牙节点（BTHLE + BTHENUM）");
                     return;
                 }
                 foreach (var node in nodes)

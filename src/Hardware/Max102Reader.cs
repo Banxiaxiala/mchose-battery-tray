@@ -255,15 +255,17 @@ namespace PeripheralBattery.Hardware
 
             // 系统属性里的电量是“最后一次读到的”，设备离线时不代表当前值。
             // 用 IsConnected 区分，并在离线时保留百分比（用户想知道睡前剩多少）。
-            string status = info.Connected ? "蓝牙已连接" : "蓝牙离线";
+            // 状态文案统一走 Protocols.InterpretBluetoothState，保证与耳机一致 ——
+            // 两个 Reader 各写一份文案，改一处就会忘另一处。
+            var state = Protocols.InterpretBluetoothState(info.Connected, charging: -1);
 
             return (new Reading
             {
                 Name = "维咖 MAX102",
                 Percent = info.Percent,
-                Charging = false,           // 系统属性没有充电状态
-                Connected = info.Connected,
-                Status = status,
+                Charging = state.Charging,  // 系统属性没有充电状态，恒 false
+                Connected = state.Connected,
+                Status = state.Status,
                 Transport = "蓝牙",
             }, "");
         }

@@ -22,17 +22,17 @@
   禁止 NuGet 包、第三方 DLL、图标字体包、图片资源包。
 - 理由：单文件 exe 只有 **378 KB**（Python 版是 12 MB）。每引入一个包，
   体积、启动时间、崩溃面全都变差。
-- 测试也不许用 xunit / nunit / MSTest —— `src-cs.Tests/Harness.cs` 里
+- 测试也不许用 xunit / nunit / MSTest —— `tests/Harness.cs` 里
   60 行手写运行器就够，`Main` 返回非 0 表示失败。
 - 唯一的外部依赖是 .NET SDK 8（构建期）。它只能装到
   `C:\Program Files\dotnet`（MSI 不支持改目录，详见 `net-tool-policy` skill 3.8 节）。
 
 ## 2. 模块化分层，禁止单文件巨石化
 
-- 所有生产代码必须位于 `src-cs/` 下对应分层：
+- 所有生产代码必须位于 `src/` 下对应分层：
   - `Models/` — 纯数据与纯换算，**零 I/O**，可脱机单测
   - `Core/` — Win32 底层：`Win32.cs`（全部 P/Invoke）、`Hid.cs`（句柄与挂起读）、
-    `BluetoothBattery.cs`（BTHLE 电量属性）
+    `BluetoothBattery.cs`（`BTHLE` + `BTHENUM` 电量属性，耳机与键盘共用）
   - `Hardware/` — `Protocols.cs`（纯解析，零 I/O）+ `Readers.cs`（I/O 编排）
     + `Max102Reader.cs`（维咖键盘的双通道降级）
   - `Services/` — `History.cs`（历史与预测）、`Settings.cs`、`AutoStart.cs`
@@ -175,21 +175,45 @@
   于是界面显示“预计剩余无限久”。判据是 `Reading.Connected`，
   不是 `Percent.HasValue` —— 见 `Program.RefreshNow` 的 `live` 变量。
 
+## 9b. 蓝牙电量（耳机与键盘共用）
+
+两块内容永远不能混在一起：
+
+1. **两棵枚举树都要扫**。`BTHLE`（低功耗，键盘）和 `BTHENUM`
+   （经典蓝牙，耳机）缺一棵就有一类设备永远读不到 —— 耳机在蓝牙模式下
+   的电量只存在于 `BTHENUM` 的音频服务子节点。
+2. **电量与在线状态不在同一个节点上**。带电量那个子节点的
+   `DEVPKEY_Device_IsConnected` 恒为 `False`；真正表示链路在线的
+   是同一 MAC 的 `BTHENUM\DEV_<MAC>` 父节点，而它没有电量。
+   所以在线状态必须按 MAC 先聚合，再挂到带电量结果的节点上。
+   拿子节点的 `IsConnected` 当结论，会在耳机正放着歌时显示「蓝牙离线」。
+3. **`BTHENUM` 必须先按音频服务 UUID 过滤**。那棵树下还有蓝牙串口、
+   蓝牙鼠标、传真等节点，不过滤会串到别的设备上 ——
+   见 `Protocols.IsBluetoothAudioInstance`。
+4. **充电状态要如实报未知**。`{104EA319-…} 3` 实测恒缺失，
+   不能默认成「放电中」，也不能默认成「充电中」——
+   统一走 `Protocols.InterpretBluetoothState(info.Connected, charging: -1)`。
+5. **状态文案只允许一处**。耳机与键盘都必须调 `InterpretBluetoothState`，
+   不许各写一份，否则改一处就会瞒另一处。
+
 ## 10. 工作区与文件卫生
 
-- **根目录纯净**：只保留 `README.md`、`ARCHITECTURE.md`、`AGENTS.md`、
-  `build.bat`、`.gitignore`、`app.ico`、`icon.ico`、`version_info.txt`、
-  以及 `src-cs/`、`src-cs.Tests/`、`archive/`、`assets/`。
-  严禁在根目录倾倒临时截图、调试脚本、日志。
+- **根目录纯净**：只允许 `build.bat`、`.gitignore`、`NuGet.Config`、
+  `app.ico`、`icon.ico`，以及 `src/`、`tests/`、`docs/`、`assets/`、`tools/`。
+  所有说明文档一律放 `docs/`，严禁在根目录倾倒临时截图、调试脚本、日志。
+- **文档位置**：`docs/README.md`（说明）、`docs/ARCHITECTURE.md`（分层与决策）、
+  `docs/HANDOVER.md`（交接与排查）、`docs/AGENTS.md`（本文件）。
+  GitHub 首页会读根目录 README，若需要展示请放一个只含链接的极简
+  `README.md`，不要把正文复制两份。
 - **零二进制提交**：`bin/`、`obj/`、`dist/`、`release/`、`*.exe`、`*.pdb`
   全部在 `.gitignore` 里，严禁提交。发布走 GitHub Releases 附件。
 - **收工自省**：宣布任务完成前必须 `git status` 审查工作区，主动清理临时文件。
 
 ## 11. 发布流程（留旧测新）
 
-1. 改 `src-cs/PeripheralBattery.csproj` 的 `<Version>`
+1. 改 `src/PeripheralBattery.csproj` 的 `<Version>`
 2. 跑 `build.bat`（会自动杀进程 → 跑测试 → 编译 → 发布）
-3. 测试必须 **85 项全 PASS**
+3. 测试必须 **88 项全 PASS**
 4. 跑 `dist\外设电量.exe --probe`，两台设备都要读到
 5. 手动起一次托盘，确认左键弹卡片、齿轮开设置、点别处能收起
 
@@ -216,7 +240,7 @@
 
 由此得：相邻净间隙 0.8px、中心留孔半径 2.6px、外沿 11.6px。
 
-**四条几何硬约束**（`src-cs.Tests` 里有断言锁着，改参数会立刻失败）：
+**四条几何硬约束**（`tests` 里有断言锁着，改参数会立刻失败）：
 
 1. 相邻圈净间隙 ≥ 0.5px（再小就粘连）
 2. 最外圈外沿 ≤ 12px（24px 图标半宽，超了被裁切）
@@ -280,5 +304,5 @@
 
 - 解决新的架构共性陷阱 → 更新 `ARCHITECTURE.md`「关键设计决策」
 - 新增设备私有报文细节 → 补进 `Hardware/Protocols.cs` 的注释与
-  `src-cs.Tests/ProtocolTests.cs` 的实测帧断言（Python 侧同步）
+  `tests/ProtocolTests.cs` 的实测帧断言（Python 侧同步）
 - 发现新的 Win32 / WPF 坑 → 追加到本文件第 6、7 节，把症状与根因都写清

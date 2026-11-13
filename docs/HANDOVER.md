@@ -18,13 +18,19 @@
 | 代码量 | 生产代码 21 个文件 / 约 6200 行；测试 3 个文件 / 约 1000 行 |
 | 单文件 exe | 约 390 KB（framework-dependent） |
 | 第三方依赖 | **零**（只用 BCL + WPF + Win32 P/Invoke） |
-| 测试 | 85 项脱机断言，全部通过 |
-| 本机实测设备 | 罗技 PRO X 2（`046D:C54D`）、雷蛇 BlackShark V2 Pro 2.4（`1532:0555`）、维咖 MAX102（2.4G `342D:E537` / 蓝牙 `MAX102-BT*`） |
+| 测试 | 88 项脱机断言，全部通过 |
+| 本机实测设备 | 罗技 PRO X 2（`046D:C54D`）、雷蛇 BlackShark V2 Pro（2.4G `1532:0555` / 蓝牙 `Razer BlackShark V2 Pro BT`）、维咖 MAX102（2.4G `342D:E537` / 蓝牙 `MAX102-BT*`） |
 
 > **v3 → v4 改了什么**：把写死的「鼠标 + 耳机」重构成设备表
 > （`Program.BuildDevices()`），加入第三台设备维咖 MAX102，
 > 托盘图标从双圆环变三圆环，程序改名为「外设电量」（含历史数据迁移）。
 > 详见 [ARCHITECTURE.md](ARCHITECTURE.md) 的「设备表驱动」与「维咖 MAX102」两节。
+>
+> **v4 之后的增量**：耳机补上蓝牙模式读数。耳机的电量在蓝牙模式下
+> 只存在于系统 PnP 属性里，而且**挂在经典蓝牙（BTHENUM）的音频服务子节点**
+> 上（不是 BTHLE），旧的 `BluetoothBattery.Query` 只枚举 BTHLE，
+> 所以耳机在蓝牙下永远显示「没找到 2.4G 接口」。详见 ARCHITECTURE 的
+> 「蓝牙通道」一节。
 
 ---
 
@@ -71,7 +77,7 @@ build.bat
 想跳过测试只编译：
 
 ```bat
-dotnet build src-cs\PeripheralBattery.csproj
+dotnet build src\PeripheralBattery.csproj
 ```
 
 ### 2.3 验证设备能读到
@@ -100,6 +106,20 @@ dist\外设电量.exe --probe
     状态    放电中
     在线    是
 ```
+
+耳机切换成蓝牙模式（不插 dongle）后，同一组会变成：
+
+```
+[雷蛇]
+  BlackShark V2 Pro
+    协议    蓝牙
+    电量    100%
+    状态    蓝牙已连接（充电状态未知）
+    在线    是
+```
+
+> 「充电状态未知」是正常的：系统的蓝牙电量属性里没有充电位
+> （`{104EA319-…} 3` 实测恒缺失），不能默认成「放电中」。
 
 如果三台都是「读取失败」，见本文第 6 节排查。
 
@@ -144,7 +164,10 @@ dist\外设电量.exe --probe --trace
 ## 3. 代码在哪
 
 ```
-src-cs/
+build.bat                 ← 一键构建（自动定位装了 SDK 的 dotnet）
+docs/                     ← 本文件、README、ARCHITECTURE、AGENTS
+src/
+  PeripheralBattery.csproj  ← 唯一的生产工程文件（net8.0-windows）
   Program.cs              ← 装配层：把各层接起来。改「程序怎么跑」看这里
   Models/Models.cs        ← 纯数据 Reading/Sample/Bucket/Forecast/Analysis
   Core/
@@ -168,6 +191,8 @@ src-cs/
     TrayIcon.cs           ← 托盘图标 + 右键菜单 + 图标位置查询
     Win32Cursor.cs        ← 光标位置薄封装
   Tools/CardPreview.cs    ← --preview：合成数据渲染卡片并截图
+tests/
+  PeripheralBattery.Tests.csproj ← 88 项脱机断言，链接 src 下的源文件
 ```
 
 ### 依赖方向（不要违反）
@@ -207,7 +232,7 @@ public static readonly Color BatteryHigh = Color.FromRgb(0x22, 0xC5, 0x5E);
 
 三步：
 
-1. 抓包，把真机帧补进 `src-cs.Tests/ProtocolTests.cs` 做断言
+1. 抓包，把真机帧补进 `tests/ProtocolTests.cs` 做断言
 2. 在 `Hardware/Protocols.cs` 加纯解析函数（只吃 `byte[]`，不碰 I/O）
 3. 在 `Hardware/Readers.cs` 加 I/O 编排，然后在 `Program` 里接上
 
@@ -222,7 +247,7 @@ public static readonly Color BatteryHigh = Color.FromRgb(0x22, 0xC5, 0x5E);
 1. `Services/Settings.cs` 加属性（给默认值）+ 在 `Sanitize()` 里校验
 2. `UI/SettingsPanel.cs` 加控件
 3. `Program.ApplySettings()` 里应用
-4. `src-cs.Tests` 加断言
+4. `tests` 加断言
 
 ---
 
@@ -324,7 +349,16 @@ dist\外设电量.exe --probe --trace
 
 1. 耳机开机了吗？关机时接收器还在但设备不应答，会报
    「雷蛇电量查询无应答（耳机可能已休眠）」
-2. 用 `Windows PowerShell` 跑一次 `--probe`，看是否被权限拦住
+2. 按蓝牙模式在用（没插 dongle）时，走的是系统电量属性：
+   `--probe` 末尾的「[蓝牙电量属性]」应该能看到
+   `Razer BlackShark V2 Pro BT Hands-Free AG`。看不到就说明
+   系统也没拿到电量 —— 在「设置 → 蓝牙」里看一眼卡片上有没有百分比。
+3. 用 `Windows PowerShell` 跑一次 `--probe`，看是否被权限拦住
+
+> 耳机蓝牙模式有两个经典坑（都是本次补丁踩过的）：
+> 电量在 `BTHENUM` 而不是 `BTHLE`；电量节点的 `IsConnected` 恒为
+> `False`，在线状态必须按 MAC 去父节点 `BTHENUM\DEV_<MAC>` 取。
+> 详见 ARCHITECTURE 的「蓝牙通道」一节。
 
 ### 托盘图标不显示
 
@@ -338,10 +372,11 @@ Windows 默认把新图标折叠进「^」里。从「^」把图标拖到任务�
 ### 测试挂了
 
 ```bat
-dotnet run --project src-cs.Tests
+dotnet run --project tests
 ```
 
 会逐项打印 PASS/FAIL 与失败原因。测试零硬件依赖，挂了一般是真改坏了。
+当前是 88 项。
 
 ---
 
@@ -379,7 +414,7 @@ build.bat
 ### 给别人用（自包含）
 
 ```bat
-dotnet publish src-cs\PeripheralBattery.csproj -c Release ^
+dotnet publish src\PeripheralBattery.csproj -c Release ^
   -p:PublishSingleFile=true -p:SelfContained=true ^
   -p:RuntimeIdentifier=win-x64 -p:EnableCompressionInSingleFile=true ^
   -p:IncludeNativeLibrariesForSelfExtract=true -o dist_sc
@@ -399,7 +434,8 @@ dotnet publish src-cs\PeripheralBattery.csproj -c Release ^
 
 - 罗技 HID++ 2.0 双集合读取（两遍槽位探测，空槽位 6ms 排除）
 - 维咖 MAX102 双通道（2.4G VIA `cmd 20` / 蓝牙系统属性），2.4G 优先
-- 雷蛇 64 字节 PA/PI 中断报文读取
+- 雷蛇耳机双通道（2.4G 64 字节 PA/PI / 蓝牙系统属性），2.4G 优先
+- 蓝牙电量统一读法：`BTHLE` + `BTHENUM` 两棵树，电量按名字、在线按 MAC 聚合
 - 亚克力卡片（DWM 毛玻璃 + 圆角，系统不支持时自动回退不透明）
 - 24 小时柱状图 + 续航预测（斜率法，与 logi-tray 对齐）
 - 电量跳变过滤（> 3 点/分钟即丢弃，挡住唤醒瞬间的假读数）
@@ -414,8 +450,10 @@ dotnet publish src-cs\PeripheralBattery.csproj -c Release ^
 |---|---|
 | 逐型号逆向 | 换设备必须重新抓包验证，代码里没有通用自动发现 |
 | 续航预测需要 30 分钟样本 | 刚装好会显示「放电数据积累中」 |
-| 刷新在 UI 线程 | 一次读取约 185ms，设备多了会卡顿 |
-| 只测过 2 款设备 | 罗技 PRO X 2、雷蛇 BlackShark V2 Pro 2.4 |
+| 刷新在 UI 线程 | 一次读取约 200ms，设备多了会卡顿 |
+| 只测过 3 款设备 | 罗技 PRO X 2、雷蛇 BlackShark V2 Pro（2.4G + 蓝牙）、维咖 MAX102（2.4G + 蓝牙） |
+| 蓝牙通道拿不到充电状态 | 系统属性 `{104EA319-…} 3` 实测恒缺失，界面只能写「充电状态未知」 |
+| 蓝牙通道按名字前缀认设备 | 耳机 `Razer*`、键盘 `MAX102*`。换品牌或改名就可能漏（为什么不按 MAC：MAC 随重配对变） |
 | 罗技设备名依赖 `0x0005` 特性 | 个别老机型不支持时显示成「鼠标」 |
 | 有线模式下读不到无线那端 | 物理限制：鼠标插线后不再通过 2.4G 上报，接收器槽位全部不可达。程序会如实读直连端点 |
 | 直连与接收器同时在线时只取一个 | `GroupReceivers` 接收器优先、命中即返回。不做两者合并，避免两个来源的电量打架 |

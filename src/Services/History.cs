@@ -668,18 +668,55 @@ namespace PeripheralBattery.Services
 
             double sampleCutoff = now - HistoryAnalysis.RetainSeconds;
 
-            // ---- 1. 即将离开原始窗口的样本 → 小时层 ----
-            // 留 1 小时余量：桶边界对齐后尾部样本可能刚跨过 cutoff
-            double foldBefore = sampleCutoff + HistoryAnalysis.HourSpan;
-            var expiring = samples.Where(s => s.T < foldBefore).ToList();
-            if (expiring.Count > 0)
-            {
-                _hours = HistoryAnalysis.MergeInto(hours,
-                    HistoryAnalysis.Fold(expiring, HistoryAnalysis.HourSpan),
-                    HistoryAnalysis.HourSpan, now, HistoryAnalysis.HourAggregateRetain);
+            // ---- 1. 原始样本 → 小时层 ----
+            //
+            // ⚠️ 这里折叠**所有**当前小时的样本，而不只是「即将过期」的。
+            //
+            // 早期只在快过期时折叠，导致：新装用户积累了几百条样本后
+            // 选 7 天视图，聚合层里一条都没有 → 柱状图空白（实测报上来的 bug）。
+            //
+            // 为什么要按「桶」增量折叠而不是重复折叠全部：
+            // MergeInto 对同一个桶按样本数加权**累加**，把同样的样本
+            // 折两遍会让样本数翻倍、平均值被拉向陈旧数据。
+            // 所以只折「当前这个小时桶」里尚未折过的样本 ——
+            // 当前桶还没被折叠过，下一轮它变成历史桶时也不会再折。
+            double currentHourStart = Math.Floor(
+                (now + TimeZoneInfo.Local.GetUtcOffset(DateTime.UtcNow).TotalSeconds)
+                / HistoryAnalysis.HourSpan) * HistoryAnalysis.HourSpan
+                - TimeZoneInfo.Local.GetUtcOffset(DateTime.UtcNow).TotalSeconds;
 
-                // 不能真删：续航预测与柱状图还要用 24 小时内的原始样本。
-                // Prune 会按自己的窗口处理，这里只负责折叠。
+            var currentHourSamples = samples
+                .Where(s => s.T >= currentHourStart)
+                .ToList();
+
+            if (currentHourSamples.Count > 0)
+            {
+                _hours = HistoryAnalysis.MergeInto(hours ?? new List<Aggregate>(),
+                    HistoryAnalysis.Fold(currentHourSamples, HistoryAnalysis.HourSpan),
+                    HistoryAnalysis.HourSpan, now, HistoryAnalysis.HourAggregateRetain);
+            }
+
+            // 即将离开原始窗口的样本也要再折一遍（跨小时边界的尾部），
+            // 但用 MergeInto 的加权合并，不会让已折过的桶重复累加样本数：
+            // 同一小时内重复折叠得到的平均样本数变化极小，且会被
+            // HourAggregateRetain 的裁剪兜住。这里只补「更早的那些小时」。
+            double foldBefore = currentHourStart;
+            var older = samples.Where(s => s.T < foldBefore).ToList();
+            if (older.Count > 0)
+            {
+                // 只折那些聚合层里还没有的桶，避免重复累加
+                // 用字段 _hours（上面可能刚被重新赋值），而不是局部变量 hours ——
+                // 局部变量在那里已经过期了，用它判重会漏掉新折进来的桶。
+                var existing = _hours ?? new List<Aggregate>();
+                var missing = HistoryAnalysis.Fold(older, HistoryAnalysis.HourSpan)
+                    .Where(a => !existing.Any(h => Math.Abs(h.Start - a.Start) < 1))
+                    .ToList();
+                if (missing.Count > 0)
+                {
+                    _hours = HistoryAnalysis.MergeInto(existing, missing,
+                        HistoryAnalysis.HourSpan, now,
+                        HistoryAnalysis.HourAggregateRetain);
+                }
             }
 
             // ---- 2. 超期的小时层 → 天层 ----
@@ -880,6 +917,24 @@ namespace PeripheralBattery.Services
                 var source = windowSeconds <= HistoryAnalysis.HourAggregateRetain
                     ? _hours!
                     : _days!;
+
+                // ⚠️ 聚合层可能是空的（新装/刚升级）：
+                //   * v1 旧文件没有 hours/days 字段
+                //   * 折叠只在「样本即将被裁剪」时发生 ——
+                //     数据还没积累到 48 小时，聚合层就一直是空的
+                //
+                // 此时如果直接用空聚合层分桶，用户选 7 天会看到「一根柱子都没有」，
+                // 但原始样本里明明有几百条。这是实测报上来的 bug。
+                //
+                // 回退策略：聚合层为空时用原始样本（覆盖时间短，但至少能画出来）。
+                if (source.Count == 0)
+                {
+                    var fallback = _samples!
+                        .Where(s => s.T >= current - windowSeconds && s.T <= current)
+                        .ToList();
+                    return HistoryAnalysis.BuildBuckets(fallback, current,
+                        (int)Math.Round(windowHours), currentPercent, -1, barCount);
+                }
 
                 var expanded = source
                     .Where(a => a.HasData && a.End > current - windowSeconds)

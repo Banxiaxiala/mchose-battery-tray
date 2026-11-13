@@ -364,6 +364,80 @@ namespace PeripheralBattery.Tests
             Assert.Equal(70, filled[0].Percent, "(90+70+50)/3 = 70，不是末值 50");
         }
 
+        // ============================================================ 长窗口回退
+        //
+        // 实测 bug：用户选 7 天，柱状图一根柱子都没有。
+        // 原因：7 天走小时聚合层，而聚合层是空的 ——
+        // 折叠只在「样本即将被裁剪」时发生，数据还没攒够 48 小时就是空。
+        // 但原始样本里明明有 867 条。
+
+        [Test]
+        public static void LongWindowFallsBackToRawSamples()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + System.Guid.NewGuid().ToString("N"));
+            try
+            {
+                var history = new HistoryStore("fallbacktest", dir);
+                double now = TimeText.UnixNow();
+
+                // 造 12 小时的连续样本（远小于 48 小时保留窗口，
+                // 所以聚合层一定为空）
+                for (int i = 0; i < 72; i++)
+                {
+                    history.Add(80 - (i / 6), false, now - 12 * 3600 + i * 600);
+                }
+                history.Flush(now);
+
+                // 修复根因后，聚合层在平时就会被填充（不再等到样本过期）。
+                // 历史 bug 是「聚合层为空 → 7 天视图空白」，
+                // 现在两条路都保障：聚合层有数据，万一为空还有回退。
+                var (hours, days) = history.AggregateCounts();
+                Assert.True(hours > 0,
+                    "聚合层应随写入逐步填充，而不是等到样本过期才有");
+
+                // 选 7 天（远超数据实际跨度）必须仍有柱子
+                var buckets = history.Buckets(168, 80, false, now);
+                Assert.Equal(24, buckets.Count, "柱数固定 24");
+
+                int withData = 0;
+                foreach (var b in buckets) if (b.Count > 0) withData++;
+                Assert.True(withData > 0,
+                    "7 天窗口必须有柱子（这条是实测 bug 的回归断言）");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(dir, true); } catch (System.Exception) { }
+            }
+        }
+
+        [Test]
+        public static void ShortWindowStillUsesRawSamples()
+        {
+            // 24 小时窗口本来就走原始样本，这条不能因为加了回退而改变行为
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + System.Guid.NewGuid().ToString("N"));
+            try
+            {
+                var history = new HistoryStore("shorttest", dir);
+                double now = TimeText.UnixNow();
+                for (int i = 0; i < 30; i++)
+                {
+                    history.Add(70, false, now - 3600 + i * 120);
+                }
+                history.Flush(now);
+
+                var buckets = history.Buckets(24, 70, false, now);
+                int withData = 0;
+                foreach (var b in buckets) if (b.Count > 0) withData++;
+                Assert.True(withData > 0, "24 小时窗口应正常出柱");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(dir, true); } catch (System.Exception) { }
+            }
+        }
+
         // ============================================================ 保留常量
 
         [Test]

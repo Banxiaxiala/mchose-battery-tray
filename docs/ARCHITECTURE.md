@@ -237,6 +237,32 @@ new("键盘", "max102",    2, new Max102Reader().Read),
 `reading.Connected` 门住 `History.Add`，否则陈旧读数会在历史里
 伪造出一条水平曲线，把续航预测的斜率算成 0。
 
+## 同类项目调研结论
+
+加型号之前先查过一轮公开实现，结论直接决定了架构选择：
+
+| 项目 | 提供了什么 | 我们用了吗 |
+|---|---|---|
+| [openrazer](https://github.com/openrazer/openrazer) | 雷蛇 PID 清单（最全） | ✅ 型号表 40+ 条来自这里 |
+| [FerrisPulse](https://github.com/Ferris-echo/FerrisPulse) | 多品牌实测型号 + 协议实现 | ✅ 雷蛇/罗技 PID 交叉验证 |
+| [logi-tray](https://github.com/yixing233/logi-tray) | 罗技 HID++ 两遍槽位探测 | ✅ 读取策略参考 |
+| LogitechBatteryMonitor / PowerTray 等 | 单品实现 | ❌ 都是单设备，无新信息 |
+
+**关键结论：型号表只影响显示文案，不影响能不能读到电量。**
+
+雷蛇各代鼠标/耳机的电量都走同一条 PA/PI 命令（`0x80` 帧头 + `0x21` 电量），
+openrazer 里就是同一个 `get_battery` 能力。所以本程序不需要为每个型号
+写适配器 —— 需要的是一个能覆盖整个协议族的实现 + 一张可查的名字表。
+
+这直接导致 `DeviceCatalog` 的设计：
+
+- **协议按「族」实现**，不按型号分支（`ProtocolKind` 只有 4 个值）
+- **型号表只是查名字**，查不到就 `product_string`，再查不到就「Razer 无线设备」
+- 因此型号表可以「宁缺勿错」：不收不确定的型号名，也不会因漏收而读不到
+
+同类项目里没有一个做「多层历史聚合」，也都只盯一个品牌 ——
+这是本项目把「三层聚合 + 跨品牌 + 证据分级」当核心的原因。
+
 ## 协议速查
 
 | | 罗技 HID++ | 雷蛇 PA/PI | 维咖 VIA |

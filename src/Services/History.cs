@@ -39,6 +39,236 @@ namespace PeripheralBattery.Services
         // 跨过这么久标「高置信度」
         public const double HighConfidenceSpan = 4 * 3600;
 
+        // ==================================================== 分层保留
+        //
+        // 要做到「看 24 个月趋势」又不能让文件无限长大，只能分层：
+        //
+        //   层级     保留时长      每条间隔   每设备条数   文件大小
+        //   原始     48 小时       20~30 秒   ~6000        ~150 KB
+        //   小时聚合 30 天         1 小时     720           ~30 KB
+        //   天聚合   24 个月（730） 1 天       730           ~30 KB
+        //
+        // 合计约 200 KB/设备，完全可以接受。若改成「24 个月全存原始样本」，
+        // 按 30 秒一条算是 630 万条 ≈ 150 MB —— 这就是必须聚合的理由。
+
+        /// <summary>小时级聚合保留时长：30 天</summary>
+        public const double HourAggregateRetain = 30 * 24 * 3600;
+        /// <summary>天级聚合保留时长：24 个月（按 730 天算，不追平均月长）</summary>
+        public const double DayAggregateRetain = 730 * 24 * 3600;
+        /// <summary>小时聚合的桶宽</summary>
+        public const int HourSpan = 3600;
+        /// <summary>天聚合的桶宽</summary>
+        public const int DaySpan = 86400;
+
+        /// <summary>
+        /// 把样本折叠成指定桶宽的聚合序列。
+        ///
+        /// 规矩：
+        ///   * 桶按**本地时区**对齐（天桶从本地 00:00 起），否则用户看到的
+        ///     「这天」会从 UTC 凌晨划开，跟其他软件对不上。
+        ///   * 只产出**有样本**的桶；空段不补 —— 补出来的点会被折线图当成
+        ///     真实数据连起来，把「关机了 3 天」画成电量平稳的直线。
+        ///     断点的表达交给图表层（HasData=false 就不画）。
+        ///   * 电量取平均（见 Aggregate 注释），同时保留 min/max 供以后统计。
+        /// </summary>
+        public static List<Aggregate> Fold(List<Sample> samples, int span)
+        {
+            var result = new List<Aggregate>();
+            if (samples == null || samples.Count == 0 || span <= 0) return result;
+
+            // 本地时区偏移：用固定偏移近似（不做夏令时回溯）。
+            // 本机东八区无夏令时；对夏令时地区轻微偏移可接受 ——
+            // 天桶最多偏 1 小时，不会把趋势画错。
+            double offset = TimeZoneInfo.Local.GetUtcOffset(
+                DateTime.UtcNow).TotalSeconds;
+
+            var ordered = samples.OrderBy(s => s.T).ToList();
+            double currentStart = double.NaN;
+            long sum = 0;
+            int count = 0;
+            int min = int.MaxValue, max = int.MinValue;
+            bool charging = false;
+
+            void Flush()
+            {
+                if (count == 0) return;
+                result.Add(new Aggregate
+                {
+                    Start = currentStart,
+                    Span = span,
+                    Percent = (int)Math.Round((double)sum / count),
+                    MinPercent = min,
+                    MaxPercent = max,
+                    Samples = count,
+                    Charging = charging,
+                });
+                sum = 0; count = 0; min = int.MaxValue; max = int.MinValue;
+                charging = false;
+            }
+
+            foreach (var sample in ordered)
+            {
+                if (sample.Percent <= 0 || sample.Percent > 100) continue;
+
+                double shifted = sample.T + offset;
+                double slot = Math.Floor(shifted / span) * span - offset;
+                if (double.IsNaN(currentStart)) currentStart = slot;
+                else if (slot > currentStart) { Flush(); currentStart = slot; }
+
+                sum += sample.Percent;
+                count++;
+                if (sample.Percent < min) min = sample.Percent;
+                if (sample.Percent > max) max = sample.Percent;
+                if (sample.Charging) charging = true;
+            }
+            Flush();
+            return result;
+        }
+
+        /// <summary>
+        /// 把旧样本折叠追加到已有聚合序列里，并丢掉超期的。
+        ///
+        /// 必须能**增量**做：每轮刷新都重新折叠全部历史会很慢，而且
+        /// 一旦原始样本被裁掉（48 小时之外），旧的那段就再也算不出来了。
+        /// 所以流程是：先把即将被裁掉的原始样本折叠进小时层，
+        /// 再把小时层超期的折叠进天层。
+        ///
+        /// 同一个桶如果已经存在，用「按样本数加权」重新平均，
+        /// 而不是直接覆盖 —— 否则后一次折叠会把前一次的数据顶掉。
+        /// </summary>
+        public static List<Aggregate> MergeInto(List<Aggregate> existing,
+            List<Aggregate> additions, int span, double now, double retainSeconds)
+        {
+            var map = new Dictionary<long, Aggregate>();
+
+            void Put(Aggregate item, bool merge)
+            {
+                long key = (long)Math.Round(item.Start);
+                if (merge && map.TryGetValue(key, out var known))
+                {
+                    long total = (long)known.Samples + item.Samples;
+                    if (total <= 0) return;
+                    known.Percent = (int)Math.Round(
+                        ((double)known.Percent * known.Samples + (double)item.Percent * item.Samples)
+                        / total);
+                    known.Samples = (int)total;
+                    known.MinPercent = Math.Min(known.MinPercent, item.MinPercent);
+                    known.MaxPercent = Math.Max(known.MaxPercent, item.MaxPercent);
+                    known.Charging |= item.Charging;
+                }
+                else
+                {
+                    map[key] = new Aggregate
+                    {
+                        Start = item.Start,
+                        Span = span,
+                        Percent = item.Percent,
+                        MinPercent = item.MinPercent,
+                        MaxPercent = item.MaxPercent,
+                        Samples = item.Samples,
+                        Charging = item.Charging,
+                    };
+                }
+            }
+
+            if (existing != null)
+                foreach (var item in existing) Put(item, merge: false);
+            if (additions != null)
+                foreach (var item in additions) Put(item, merge: true);
+
+            double cutoff = now - retainSeconds;
+            var kept = map.Values
+                .Where(a => a.End > cutoff)
+                .OrderBy(a => a.Start)
+                .ToList();
+
+            // 窗口外的最后一条要保留：它是「很久以前还剩多少」的唯一来源，
+            // 跟原始样本 Prune 的规则一致。
+            var expired = map.Values.Where(a => a.End <= cutoff)
+                .OrderByDescending(a => a.Start).FirstOrDefault();
+            if (expired != null && (kept.Count == 0 || expired.Start < kept[0].Start))
+            {
+                kept.Insert(0, expired);
+            }
+            return kept;
+        }
+
+        /// <summary>
+        /// 把指定时间范围的聚合序列转成图表点。
+        ///
+        /// 两条规则：
+        ///   1. **数据点少于目标数时，直接用真实点**，不做重采样。
+        ///      否则 24 小时只有 25 个小时桶却被拆成 60 个槽位，
+        ///      每个值被复制 2~3 次，折线就变成阶梯形锯齿。
+        ///      （这是实机预览截图里发现的问题，不是理论推演。）
+        ///   2. 数据点更多时才重采样，取每个窗口的**加权平均**而不是抽样，
+        ///      否则会略过真正的峰谷。
+        ///
+        /// 注意：本函数不再产出「空点」。空段由图表层按**时间间隔**判断
+        /// （见 LineChart 的 MaxGapRatio）—— 用真实的空点去插值会伪造出
+        /// 比实际更多的采样密度，而时间间隔是客观事实。
+        /// </summary>
+        public static List<ChartPoint> SamplePoints(List<Aggregate> aggregates,
+            double from, double to, int targetPoints = 60)
+        {
+            var points = new List<ChartPoint>();
+            if (to <= from || targetPoints < 2) return points;
+
+            var items = (aggregates ?? new List<Aggregate>())
+                .Where(a => a.End > from && a.Start < to)
+                .OrderBy(a => a.Start)
+                .ToList();
+            if (items.Count == 0) return points;
+
+            // ---- 规则 1：点不够密，直接用真实点 ----
+            // 取桶中心作为横坐标，段宽为 0（原始样本）时直接用时间戳。
+            if (items.Count <= targetPoints)
+            {
+                foreach (var item in items)
+                {
+                    if (!item.HasData) continue;
+                    double center = item.Span > 0
+                        ? item.Start + item.Span / 2.0
+                        : item.Start;
+                    points.Add(new ChartPoint(center, item.Percent, item.Charging, true));
+                }
+                return points;
+            }
+
+            // ---- 规则 2：点太多，重采样到固定数量 ----
+            double step = (to - from) / targetPoints;
+            int index = 0;
+            for (int i = 0; i < targetPoints; i++)
+            {
+                double slotStart = from + step * i;
+                double slotEnd = slotStart + step;
+
+                long sum = 0;
+                int count = 0;
+                bool charging = false;
+                while (index < items.Count && items[index].End <= slotStart) index++;
+
+                int probe = index;
+                while (probe < items.Count && items[probe].Start < slotEnd)
+                {
+                    var item = items[probe];
+                    if (item.HasData && item.End > slotStart)
+                    {
+                        sum += (long)item.Percent * item.Samples;
+                        count += item.Samples;
+                        if (item.Charging) charging = true;
+                    }
+                    probe++;
+                }
+
+                points.Add(count > 0
+                    ? new ChartPoint(slotStart + step / 2, (int)Math.Round((double)sum / count),
+                        charging, true)
+                    : new ChartPoint(slotStart + step / 2, 0, false, false));
+            }
+            return points;
+        }
+
         /// <summary>丢掉窗口外的旧样本，但永远保留最新那一条</summary>
         public static List<Sample> Prune(List<Sample> samples, double now)
         {
@@ -205,13 +435,15 @@ namespace PeripheralBattery.Services
     {
         private readonly object _gate = new();
         private List<Sample>? _samples;
+        private List<Aggregate>? _hours;
+        private List<Aggregate>? _days;
         private double _lastPersist;
 
         public string Path { get; }
 
         public static string DefaultDirectory
         {
-            // 复用 Settings 的目录解析：那里包含改名搬家与失败回退逻辑
+            // 复用 Settings 的目录解析：那里包含便携 / 改名搬家 / 失败回退
             get { return Settings.Directory; }
         }
 
@@ -223,42 +455,147 @@ namespace PeripheralBattery.Services
             Path = System.IO.Path.Combine(dir, "history_" + safe + ".json");
         }
 
-        private List<Sample> Load()
+        /// <summary>
+        /// 读历史文件。一个文件同时装三层数据（见 HistoryAnalysis 的分层注释）。
+        ///
+        /// 容错要求很高 —— 这个文件是「攒了几周才有用」的数据，宁可丢掉
+        /// 损坏的那一段，也不能因为一个字段写坏就整份清零：
+        ///   * samples / hours / days 三个数组各自独立 try
+        ///   * 单条解析失败只跳过那一条
+        ///   * v1 旧文件只有 samples，读出来小时后层为空，下次折叠自动补齐
+        /// </summary>
+        private void LoadAll()
         {
-            if (_samples != null) return _samples;
+            if (_samples != null) return;
 
             var samples = new List<Sample>();
+            var hours = new List<Aggregate>();
+            var days = new List<Aggregate>();
+
             try
             {
                 if (File.Exists(Path))
                 {
                     using var stream = File.OpenRead(Path);
                     using var doc = JsonDocument.Parse(stream);
-                    if (doc.RootElement.TryGetProperty("samples", out var array))
-                    {
-                        foreach (var item in array.EnumerateArray())
-                        {
-                            try
-                            {
-                                int percent = item.GetProperty("percent").GetInt32();
-                                if (percent <= 0 || percent > 100) continue;
-                                double t = item.GetProperty("t").GetDouble();
-                                bool charging = item.TryGetProperty("charging", out var c)
-                                    && c.GetBoolean();
-                                samples.Add(new Sample(t, percent, charging));
-                            }
-                            catch (Exception) { }
-                        }
-                    }
-                    samples.Sort((a, b) => a.T.CompareTo(b.T));
+
+                    ReadSamples(doc, samples);
+                    ReadAggregates(doc, "hours", HistoryAnalysis.HourSpan, hours);
+                    ReadAggregates(doc, "days", HistoryAnalysis.DaySpan, days);
                 }
             }
             catch (Exception)
             {
-                samples.Clear();   // 文件坏了不该影响读数，重新开始
+                // 整个文件坏了：保留内存里已收集到的，剩下重新开始
             }
+
+            samples.Sort((a, b) => a.T.CompareTo(b.T));
+            hours.Sort((a, b) => a.Start.CompareTo(b.Start));
+            days.Sort((a, b) => a.Start.CompareTo(b.Start));
+
             _samples = samples;
-            return samples;
+            _hours = hours;
+            _days = days;
+        }
+
+        private static void ReadSamples(JsonDocument doc, List<Sample> target)
+        {
+            if (!doc.RootElement.TryGetProperty("samples", out var array)) return;
+            if (array.ValueKind != JsonValueKind.Array) return;
+
+            foreach (var item in array.EnumerateArray())
+            {
+                try
+                {
+                    int percent = item.GetProperty("percent").GetInt32();
+                    if (percent <= 0 || percent > 100) continue;
+                    double t = item.GetProperty("t").GetDouble();
+                    bool charging = item.TryGetProperty("charging", out var c)
+                        && c.GetBoolean();
+                    target.Add(new Sample(t, percent, charging));
+                }
+                catch (Exception) { }
+            }
+        }
+
+        private static void ReadAggregates(JsonDocument doc, string name, int span,
+            List<Aggregate> target)
+        {
+            if (!doc.RootElement.TryGetProperty(name, out var array)) return;
+            if (array.ValueKind != JsonValueKind.Array) return;
+
+            foreach (var item in array.EnumerateArray())
+            {
+                try
+                {
+                    int percent = item.GetProperty("percent").GetInt32();
+                    if (percent <= 0 || percent > 100) continue;
+                    target.Add(new Aggregate
+                    {
+                        Start = item.GetProperty("start").GetDouble(),
+                        Span = span,
+                        Percent = percent,
+                        MinPercent = item.TryGetProperty("min", out var lo) ? lo.GetInt32() : percent,
+                        MaxPercent = item.TryGetProperty("max", out var hi) ? hi.GetInt32() : percent,
+                        Samples = item.TryGetProperty("n", out var n) ? n.GetInt32() : 1,
+                        Charging = item.TryGetProperty("chg", out var chg) && chg.GetBoolean(),
+                    });
+                }
+                catch (Exception) { }
+            }
+        }
+
+        private List<Sample> Load()
+        {
+            LoadAll();
+            return _samples!;
+        }
+
+        /// <summary>
+        /// 把即将被裁掉的原始样本折叠进小时层，再把超期的小时层折叠进天层。
+        ///
+        /// 为什么不能「每次全量重算」：原始样本只保留 48 小时，
+        /// 一旦被 Prune 删掉，上周的数据就只能靠小时层；而小时层保留 30 天，
+        /// 再往前的只能靠天层。所以折叠必须**在裁剪之前**做，且只能做一次。
+        /// </summary>
+        private void Compact(double now)
+        {
+            var samples = _samples!;
+            var hours = _hours!;
+            var days = _days!;
+
+            double sampleCutoff = now - HistoryAnalysis.RetainSeconds;
+
+            // ---- 1. 即将离开原始窗口的样本 → 小时层 ----
+            // 留 1 小时余量：桶边界对齐后尾部样本可能刚跨过 cutoff
+            double foldBefore = sampleCutoff + HistoryAnalysis.HourSpan;
+            var expiring = samples.Where(s => s.T < foldBefore).ToList();
+            if (expiring.Count > 0)
+            {
+                _hours = HistoryAnalysis.MergeInto(hours,
+                    HistoryAnalysis.Fold(expiring, HistoryAnalysis.HourSpan),
+                    HistoryAnalysis.HourSpan, now, HistoryAnalysis.HourAggregateRetain);
+
+                // 不能真删：续航预测与柱状图还要用 24 小时内的原始样本。
+                // Prune 会按自己的窗口处理，这里只负责折叠。
+            }
+
+            // ---- 2. 超期的小时层 → 天层 ----
+            double hourCutoff = now - HistoryAnalysis.HourAggregateRetain;
+            var oldHours = _hours!.Where(a => a.End <= hourCutoff).ToList();
+            if (oldHours.Count > 0)
+            {
+                // 小时层已经是「每小时一个平均值」，直接当样本再聚合即可：
+                // 每个小时贡献 1 个点，天桶算出来就是其内各小时的均值。
+                var asSamples = oldHours
+                    .Where(a => a.HasData)
+                    .Select(a => new Sample(a.Start, a.Percent, a.Charging))
+                    .ToList();
+
+                _days = HistoryAnalysis.MergeInto(days,
+                    HistoryAnalysis.Fold(asSamples, HistoryAnalysis.DaySpan),
+                    HistoryAnalysis.DaySpan, now, HistoryAnalysis.DayAggregateRetain);
+            }
         }
 
         /// <summary>
@@ -287,6 +624,13 @@ namespace PeripheralBattery.Services
 
                 samples.Add(new Sample(current, percent.Value, charging));
                 _samples = HistoryAnalysis.Prune(samples, current);
+
+                // 先折叠再裁剪：原始样本一旦被 Prune 删掉，那段就只能靠
+                // 聚合层了（小时层保留 30 天，天层 24 个月）。
+                // Compact 自己只看窗口，重复调用不会重复累加 ——
+                // 已经在聚合里的样本不会被再次合并（见 MergeInto 的按桶合并）。
+                Compact(current);
+
                 if (current - _lastPersist >= HistoryAnalysis.PersistInterval)
                 {
                     Persist(current);
@@ -350,9 +694,72 @@ namespace PeripheralBattery.Services
             }
         }
 
+        /// <summary>
+        /// 指定时间范围的图表点。
+        ///
+        /// 层次选择决定了「看得到多久的历史」：
+        ///   * ≤ 48 小时：直接用原始样本（最高分辨率）
+        ///   * ≤ 30 天  ：用小时聚合
+        ///   * 更长     ：用天聚合（24 个月）
+        /// 阈值取「正好等于该层的保留时长」：超过之后原始样本早就被裁了，
+        /// 再拿它画会出现大段空白。
+        /// </summary>
+        public List<ChartPoint> Points(double windowSeconds, double? now = null,
+            int targetPoints = 60)
+        {
+            double current = now ?? TimeText.UnixNow();
+            double from = current - Math.Max(3600, windowSeconds);
+
+            lock (_gate)
+            {
+                LoadAll();
+
+                if (windowSeconds <= HistoryAnalysis.RetainSeconds)
+                {
+                    // 原始样本 → 临时折叠成 1 个点粒度交给重采样，
+                    // 不直接当聚合用（样本间隔不均匀，会画出锯齿）
+                    var raw = _samples!
+                        .Where(s => s.T >= from && s.T <= current)
+                        .Select(s => new Aggregate
+                        {
+                            Start = s.T,
+                            Span = 0,
+                            Percent = s.Percent,
+                            MinPercent = s.Percent,
+                            MaxPercent = s.Percent,
+                            Samples = 1,
+                            Charging = s.Charging,
+                        }).ToList();
+                    return HistoryAnalysis.SamplePoints(raw, from, current, targetPoints);
+                }
+
+                var source = windowSeconds <= HistoryAnalysis.HourAggregateRetain
+                    ? _hours!
+                    : _days!;
+                return HistoryAnalysis.SamplePoints(source, from, current, targetPoints);
+            }
+        }
+
+        /// <summary>当前已积累的聚合条数，供设置面板/调试显示</summary>
+        public (int hours, int days) AggregateCounts()
+        {
+            lock (_gate)
+            {
+                LoadAll();
+                return (_hours!.Count, _days!.Count);
+            }
+        }
+
         private void Persist(double now)
         {
             _lastPersist = now;
+
+            // ⚠️ 必须先 LoadAll：Persist 可能在「从未读过」的实例上被调用
+            // （进程启动后什么都不做就退出 → Flush → 这里）。
+            // 不先加载，_samples 就是 null，会把整个文件写成空数组 ——
+            // 用户攒了几周的曲线一次退出就没了。
+            LoadAll();
+
             var samples = _samples ?? new List<Sample>();
             try
             {
@@ -361,17 +768,21 @@ namespace PeripheralBattery.Services
 
                 var payload = new
                 {
-                    version = 1,
+                    version = 2,
                     samples = samples.Select(s => new
                     {
                         t = Math.Round(s.T, 3),
                         percent = s.Percent,
                         charging = s.Charging,
                     }).ToList(),
+                    // 聚合层字段名刻意缩短（start/percent/n/chg）：
+                    // 730 条 × 多台设备，长字段名会把文件白撑大好几倍。
+                    hours = (_hours ?? new List<Aggregate>()).Select(WriteAggregate).ToList(),
+                    days = (_days ?? new List<Aggregate>()).Select(WriteAggregate).ToList(),
                 };
                 string json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
                 {
-                    WriteIndented = true,
+                    WriteIndented = false,
                     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
                 });
                 // 不写 BOM：带 BOM 的 JSON 会让 Python 等解析器直接报错
@@ -383,6 +794,19 @@ namespace PeripheralBattery.Services
             {
                 // 写不进去只损失记忆，不影响读数
             }
+        }
+
+        private static object WriteAggregate(Aggregate a)
+        {
+            return new
+            {
+                start = Math.Round(a.Start, 0),
+                percent = a.Percent,
+                min = a.MinPercent,
+                max = a.MaxPercent,
+                n = a.Samples,
+                chg = a.Charging,
+            };
         }
     }
 }

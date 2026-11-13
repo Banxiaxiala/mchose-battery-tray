@@ -25,13 +25,14 @@ src/                         生产代码
     Readers.cs                  I/O 编排：罗技两遍槽位探测、雷蛇 64B 收发 → 蓝牙回落
     Max102Reader.cs             维咖 MAX102：2.4G VIA 优先 → 蓝牙属性回落
   Services/
-    History.cs                  样本存储、24h 分桶、续航预测、跳变过滤
+    History.cs                  样本存储、三层聚合（48h/30d/24m）、续航预测
     Settings.cs                 用户设置（间隔/尺寸/开关）持久化
     AutoStart.cs                三重自启动对齐
   UI/
     Palette.cs                  配色唯一来源 + 主题读取
     Icons.cs                    矢量图形（电池/闪电/刷新/齿轮/关闭）
     SparkChart.cs               24 小时柱状图（自绘，非 24 个 Border）
+    LineChart.cs                趋势折线图（按真实时间轴，空段断线）
     Acrylic.cs                  DWM 毛玻璃 + 圆角，两级回退
     TrayIconArt.cs              三圈同心环的 GDI+ 绘制（纯绘制，可脱机预览）
     TrayIcon.cs                 NotifyIcon 封装 + HICON 生成 + 位置查询
@@ -39,7 +40,7 @@ src/                         生产代码
     SettingsPanel.cs            设置面板
     Win32Cursor.cs              光标位置薄封装
   Tools/CardPreview.cs          --preview：合成数据渲染卡片并截图
-tests/                          88 项脱机断言（零硬件、零第三方框架）
+tests/                          106 项脱机断言（零硬件、零第三方框架）
 docs/                           本文件、README、HANDOVER、AGENTS
 assets/preview.png              README 用图
 app.ico / icon.ico              应用图标（根目录，csproj 用 ..\app.ico 引用）

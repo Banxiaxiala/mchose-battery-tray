@@ -2,15 +2,17 @@
 
 罗技 LIGHTSPEED 鼠标 + 雷蛇耳机（2.4G / 蓝牙）+ 维咖 MAX102 键盘（2.4G / 蓝牙）
 的电量托盘监控。只占一个托盘图标（三圈同心环），左键单击弹出亚克力卡片看
-24 小时历史与续航预测。
+历史趋势（柱状 / 折线，最长 2 年）与续航预测。
 
-C# + WPF，单文件 exe **410 KB**，零第三方运行时依赖。
+C# + WPF，单文件 exe **431 KB**，零第三方运行时依赖。
+
+数据写在 exe 旁边的 `data\`，整个文件夹可整体搬走。
 
 ## 文档
 
 | 文档 | 内容 |
 |---|---|
-| [docs/README.md](docs/README.md) | 功能与用法、协议字节布局、适配新设备 |
+| [docs/README.md](docs/README.md) | 功能与用法、历史数据分层、便携模式、协议 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、关键设计决策、线程模型、性能 |
 | [docs/HANDOVER.md](docs/HANDOVER.md) | **第一次接手先读这个**：装环境、改代码、排查手册 |
 | [docs/AGENTS.md](docs/AGENTS.md) | AI / 开发者的维护铁律 |

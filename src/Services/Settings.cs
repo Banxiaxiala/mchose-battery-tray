@@ -1,15 +1,16 @@
 ﻿// ⚠️ AI 维护准则 (AI MAINTENANCE DIRECTIVE - DO NOT REMOVE) ⚠️
 //
-// 1. [设置必须落盘] 用户的每一项自定义都要写进
-//    %LOCALAPPDATA%\外设电量\settings.json，重启后保持。
-//    改名前的目录是 2.4G设备电量，Settings.Directory 会在首次启动时
-//    整目录搬过来（历史文件一起搬，不能清零）。
-//    只放内存里会导致「每次开机都回到默认」。
-// 2. [字段只增不改] 新增字段必须给默认值，删字段要保留兼容读取（旧文件缺字段
+// 1. [设置必须落盘] 用户的每一项自定义都要写进数据目录的 settings.json，
+//    重启后保持。只放内存里会导致「每次开机都回到默认」。
+// 2. [便携优先] 数据目录默认就在 **exe 旁边**（见 Directory）：
+//    用户把整个文件夹拷到 U 盘 / 另一台机器，设置、历史、日志全部跟着走。
+//    程序目录写不进去（如放在 Program Files）才回退到 %LOCALAPPDATA%。
+//    旧版数据在 %LOCALAPPDATA%\外设电量，首次启动会迁过来，不能清零。
+// 3. [字段只增不改] 新增字段必须给默认值，删字段要保留兼容读取（旧文件缺字段
 //    时用默认值即可，不要抛异常）。用户的配置文件不会跟着版本升级。
-// 3. [区间校验集中在此] 刷新间隔、卡片宽度的合法范围只允许定义在这里，
+// 4. [区间校验集中在此] 刷新间隔、卡片宽度的合法范围只允许定义在这里，
 //    界面层不许自己写 magic number 判断。
-// 4. [编码] UTF-8 with BOM。
+// 5. [编码] UTF-8 with BOM。
 
 using System;
 using System.IO;
@@ -54,6 +55,71 @@ namespace PeripheralBattery.Services
         /// </summary>
         [JsonPropertyName("card_height")]
         public double CardHeight { get; set; } = 0;
+
+        // ---------------------------------------------------------- 历史图表
+        /// <summary>
+        /// 图表样式："bar" = 24 小时柱状图，"line" = 折线趋势图。
+        /// 存字符串而不是枚举，是因为 System.Text.Json 默认把枚举写成数字，
+        /// 日后调枚举顺序会静默改变用户已有配置的含义。
+        /// </summary>
+        [JsonPropertyName("chart_style")]
+        public string ChartStyle { get; set; } = "bar";
+
+        /// <summary>
+        /// 折线图的时间跨度（小时）。可选 24 / 168(7天) / 720(30天)
+        /// / 8760(365天) / 17520(730天)。
+        /// 超过 30 天时数据来自天级聚合（保留 24 个月），分辨率自然下降。
+        /// </summary>
+        [JsonPropertyName("chart_range_hours")]
+        public int ChartRangeHours { get; set; } = 24;
+
+        /// <summary>可选的时间跨度（小时）。界面按这个列表生成切换按钮</summary>
+        public static readonly int[] ChartRangeOptions = { 24, 168, 720, 8760, 17520 };
+
+        /// <summary>时间跨度的显示名</summary>
+        public static string ChartRangeLabel(int hours)
+        {
+            switch (hours)
+            {
+                case 24: return "24 小时";
+                case 168: return "7 天";
+                case 720: return "30 天";
+                case 8760: return "1 年";
+                case 17520: return "2 年";
+                default: return hours + " 小时";
+            }
+        }
+
+        /// <summary>
+        /// 胶囊按钮上的超短名（不带空格）。
+        /// 288px 宽的卡片里同时摆五个选项，带空格的「30 天」会溢出，
+        /// 所以按钮用这种紧凑写法，详细名称留给上方标题。
+        /// </summary>
+        public static string ChartRangeShortLabel(int hours)
+        {
+            switch (hours)
+            {
+                case 24: return "24h";
+                case 168: return "7天";
+                case 720: return "30天";
+                case 8760: return "1年";
+                case 17520: return "2年";
+                default: return hours + "h";
+            }
+        }
+
+        public static int ClampChartRange(int hours)
+        {
+            // 不在候选表里就回默认，不抛异常 —— 用户手改配置不该弄崩程序
+            return Array.IndexOf(ChartRangeOptions, hours) >= 0 ? hours : 24;
+        }
+
+        public static string ClampChartStyle(string? style)
+        {
+            return string.Equals(style, "line", StringComparison.OrdinalIgnoreCase)
+                ? "line"
+                : "bar";
+        }
 
         // ---------------------------------------------------------- 配色
         /// <summary>
@@ -123,6 +189,8 @@ namespace PeripheralBattery.Services
             CardWidth = ClampWidth(CardWidth);
             ChartHeight = ClampChartHeight(ChartHeight);
             CardHeight = ClampCardHeight(CardHeight);
+            ChartStyle = ClampChartStyle(ChartStyle);
+            ChartRangeHours = ClampChartRange(ChartRangeHours);
 
             // 阈值必须严格递增，否则配色会出现「不可达档位」
             ThresholdCritical = Math.Clamp(ThresholdCritical, 1, 60);
@@ -131,21 +199,52 @@ namespace PeripheralBattery.Services
         }
 
         // ---------------------------------------------------------- 落盘
-        /// <summary>数据目录名。改名后历史与设置一并搬过去。</summary>
+        /// <summary>appdata 下的数据目录名（便携模式不可用时的回退位置）</summary>
         public const string AppFolderName = "外设电量";
 
         /// <summary>改名前的目录名，升级时整目录搬家</summary>
         private const string LegacyFolderName = "2.4G设备电量";
 
+        /// <summary>可执行文件所在目录</summary>
+        public static string ProgramDirectory
+        {
+            get
+            {
+                try
+                {
+                    string? exe = Environment.ProcessPath;
+                    if (!string.IsNullOrEmpty(exe))
+                    {
+                        string? dir = Path.GetDirectoryName(exe);
+                        if (!string.IsNullOrEmpty(dir)) return dir!;
+                    }
+                }
+                catch (Exception) { }
+
+                try { return AppContext.BaseDirectory.TrimEnd(
+                    Path.DirectorySeparatorChar); }
+                catch (Exception) { return System.IO.Directory.GetCurrentDirectory(); }
+            }
+        }
+
         private static string? _resolvedDirectory;
 
         /// <summary>
-        /// 数据目录：%LOCALAPPDATA%\外设电量。
+        /// 数据目录。**默认就在 exe 旁边**，这样整个文件夹可以整体搬走
+        /// （U 盘、另一台电脑），设置 / 历史 / 日志一起走。
         ///
-        /// 改名不能丢历史 —— 用户在 2.4G设备电量 目录里攒了几天的曲线，
-        /// 直接换个目录就等于清零。所以首次启动时把旧目录【整目录 Move】
-        /// 过去（历史与设置一起过去，不是只拷 settings）。
-        /// 搬不动（被占用/权限）就退回旧目录继续用，优先保证不丢数据。
+        /// 三级解析，按顺序尝试：
+        ///   1. `&lt;exe 目录&gt;\data` —— 能写就用它（便携）
+        ///   2. `%LOCALAPPDATA%\外设电量` —— 程序目录不可写时的回退
+        ///   3. 旧目录 `%LOCALAPPDATA%\2.4G设备电量` —— 连 2 都建不出来时兼容
+        ///
+        /// 为什么多包一层 `data\` 而不是直接倒进 exe 目录：
+        /// exe 旁边已经有 dist 产物、图标、文档，再混进 history_*.json
+        /// 会让用户根本分不清哪些能删。一个 data 子目录一目了然。
+        ///
+        /// 便携模式必须做**写探针**（实际建一个文件）而不是只看
+        /// FileAttributes.ReadOnly：放在 Program Files 或只读 U 盘时，
+        /// 目录属性可能仍是「可写」，但创建文件会被 ACL 拒绝。
         /// </summary>
         public static string Directory
         {
@@ -155,9 +254,19 @@ namespace PeripheralBattery.Services
 
                 string local = Environment.GetFolderPath(
                     Environment.SpecialFolder.LocalApplicationData);
+                string portable = Path.Combine(ProgramDirectory, "data");
                 string current = Path.Combine(local, AppFolderName);
                 string legacy = Path.Combine(local, LegacyFolderName);
 
+                // ---- 1. 便携：exe 旁边的 data\ ----
+                if (IsWritable(portable))
+                {
+                    _resolvedDirectory = portable;
+                    MigrateLegacyInto(portable, current, legacy);
+                    return _resolvedDirectory;
+                }
+
+                // ---- 2. 回退到 %LOCALAPPDATA%\外设电量 ----
                 try
                 {
                     if (!System.IO.Directory.Exists(current)
@@ -181,6 +290,67 @@ namespace PeripheralBattery.Services
                 return _resolvedDirectory;
             }
         }
+
+        /// <summary>
+        /// 目录是否真的能写。必须实际建删一个文件：只有属性位判断不够，
+        /// ACL / 只读卷 / 虚拟化都可能让「看起来可写」实际失败。
+        /// </summary>
+        private static bool IsWritable(string directory)
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(directory);
+                string probe = Path.Combine(directory, ".write_probe");
+                File.WriteAllText(probe, "ok");
+                File.Delete(probe);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 首次进入便携模式时，把旧位置的数据搬过来。
+        ///
+        /// 只搬一次，且**只在便携目录里还没有对应文件时**搬 —— 否则用户
+        /// 从 U 盘插到另一台机器（那台机器上有更旧的历史）时，会用旧数据
+        /// 覆盖他手里较新的那份。
+        /// </summary>
+        private static void MigrateLegacyInto(string portable, string current, string legacy)
+        {
+            foreach (string source in new[] { current, legacy })
+            {
+                try
+                {
+                    if (!System.IO.Directory.Exists(source)) continue;
+
+                    foreach (string file in System.IO.Directory.GetFiles(source))
+                    {
+                        string name = Path.GetFileName(file);
+                        // 只认本程序的数据文件，别把用户其它东西抄进来
+                        if (!name.StartsWith("history_", StringComparison.OrdinalIgnoreCase)
+                            && !name.Equals("settings.json", StringComparison.OrdinalIgnoreCase)
+                            && !name.StartsWith("log", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        string target = Path.Combine(portable, name);
+                        if (File.Exists(target)) continue;   // 便携目录里的优先
+                        File.Copy(file, target, overwrite: false);
+                    }
+                }
+                catch (Exception)
+                {
+                    // 迁不动不影响启动：继续用便携目录里的（可能为空）
+                }
+            }
+        }
+
+        /// <summary>日志目录。与数据同处，整体搬走时一起走。</summary>
+        public static string LogDirectory { get { return Path.Combine(Directory, "logs"); } }
 
         public static string FilePath { get { return Path.Combine(Directory, "settings.json"); } }
 

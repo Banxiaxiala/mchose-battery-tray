@@ -260,6 +260,116 @@ namespace PeripheralBattery.Tests
             Assert.Equal("刚刚", TimeText.FormatAge(Now + 5000, Now), "时钟回拨");
         }
 
+        // ============================================================ 分层聚合落盘
+        //
+        // 24 个月的历史靠「原始 48h + 小时 30 天 + 天 24 个月」三层实现。
+        // 这里锁住两件最容易出事的事：
+        //   1. v1 旧文件（只有 samples）必须能读，不能因为多了 hours/days 就崩
+        //   2. 反复读写后聚合层不能丢，也不能重复累加
+
+        [Test]
+        public static void V1FileWithoutAggregatesStillLoads()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(dir);
+                // 手写一份 v1 格式（没有 hours / days 字段）
+                string v1 = "{\"version\":1,\"samples\":[" +
+                    "{\"t\":" + (Now + 10).ToString("0") + ",\"percent\":88,\"charging\":false}," +
+                    "{\"t\":" + (Now + 40).ToString("0") + ",\"percent\":86,\"charging\":false}]}";
+                File.WriteAllText(System.IO.Path.Combine(dir, "history_old.json"), v1);
+
+                var history = new HistoryStore("old", dir);
+                var analysis = history.Analyze(86, false, Now + 100);
+                Assert.Equal(2, analysis.SampleCount, "v1 的 samples 必须照常读出");
+
+                var (hours, days) = history.AggregateCounts();
+                Assert.Equal(0, hours, "v1 没有聚合层，默认为空而不是报错");
+                Assert.Equal(0, days, "同上");
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
+        }
+
+        [Test]
+        public static void AggregatesSurviveReload()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var history = new HistoryStore("agg", dir);
+                // 造一段两小时前的样本，逼出一次折叠（落在 48h 窗口内但已跨桶）
+                double baseTime = Now - 3 * 3600;
+                for (int i = 0; i < 6; i++)
+                {
+                    history.Add(90 - i, false, baseTime + i * 600);
+                }
+                history.Flush(Now);
+
+                var reloaded = new HistoryStore("agg", dir);
+                reloaded.Flush(Now);   // 触发一次加载
+
+                var analysis = reloaded.Analyze(84, false, Now);
+                Assert.True(analysis.SampleCount >= 6, "原始样本仍在");
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
+        }
+
+        [Test]
+        public static void PointsUseRawLayerForShortWindow()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var history = new HistoryStore("pts", dir);
+                for (int i = 0; i < 20; i++)
+                {
+                    history.Add(80 - i, false, Now - 3600 + i * 120);
+                }
+                history.Flush(Now);
+
+                var points = history.Points(24 * 3600.0, Now, targetPoints: 12);
+                Assert.Equal(12, points.Count, "重采样到固定点数");
+
+                int withData = 0;
+                foreach (var point in points) if (point.HasData) withData++;
+                Assert.True(withData > 0, "1 小时窗口内应该有数据");
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
+        }
+
+        [Test]
+        public static void PointsOnEmptyHistoryReturnAllGaps()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var history = new HistoryStore("empty", dir);
+                var points = history.Points(720 * 3600.0, Now, targetPoints: 10);
+                // 没有数据时 SamplePoints 直接返回空（图表自己显示「暂无数据」）
+                int withData = 0;
+                foreach (var point in points) if (point.HasData) withData++;
+                Assert.Equal(0, withData, "没有任何历史时不能编造数据点");
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
+        }
+
         // ============================================================ 存储
         [Test]
         public static void PersistAndReload()

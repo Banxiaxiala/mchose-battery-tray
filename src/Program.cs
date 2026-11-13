@@ -106,10 +106,19 @@ namespace PeripheralBattery
             catch (Exception) { }
 
             // --preview：用合成数据渲染卡片并截图，调视觉时用
+            //
+            //   --preview <输出路径> [bar|line] [范围小时]
+            //
+            // 带样式与范围参数是为了能离线验证折线图与切换条 ——
+            // 真实的 24 个月数据要等两个月才攒得出来，不能靠等。
             if (args.Length > 0 && args[0] == "--preview")
             {
                 AttachConsole(-1);
-                Tools.CardPreview.Run(args.Length > 1 ? args[1] : "card.png");
+                string output = args.Length > 1 ? args[1] : "card.png";
+                string style = args.Length > 2 ? args[2] : "bar";
+                int range = 24;
+                if (args.Length > 3) int.TryParse(args[3], out range);
+                Tools.CardPreview.Run(output, style, range);
                 return;
             }
 
@@ -152,6 +161,25 @@ namespace PeripheralBattery
             _tray = new TrayIcon();
             _card = new BatteryCard();
             _card.SetHandlers(RefreshNow, OpenSettings);
+
+            // 图表切换必须同时做三件事，少一件用户就会觉得「点了没反应」：
+            //   1. 更新设置并落盘（下次打开保持）
+            //   2. 重新拉数据并重绘卡片（设置变了但界面不变是最常见的抱怨）
+            //   3. 卡片尺寸可能变（折线图与柱状图高度不同），要重新定位
+            _card.ApplyChartSettings(_settings.ChartStyle, _settings.ChartRangeHours);
+            _card.SetChartHandlers(
+                style =>
+                {
+                    _settings.ChartStyle = Settings.ClampChartStyle(style);
+                    _settings.Save();
+                    SyncChartToCard();
+                },
+                hours =>
+                {
+                    _settings.ChartRangeHours = Settings.ClampChartRange(hours);
+                    _settings.Save();
+                    SyncChartToCard();
+                });
 
             var panel = new SettingsPanel(_settings);
             panel.SettingsChanged += ApplySettings;
@@ -280,6 +308,20 @@ namespace PeripheralBattery
             {
                 _tray.SetReadings(BuildRings());
             }
+        }
+
+        /// <summary>
+        /// 把设置里的图表选项推给卡片，然后重绘。
+        ///
+        /// 重绘后必须 Reposition：折线图与柱状图的内容高度不同
+        /// （折线图多了左侧刻度带与底部时间标签），卡片高度会变，
+        /// 不重新定位就会往上顶出一个缺口（见 AGENTS.md 6.2）。
+        /// </summary>
+        private static void SyncChartToCard()
+        {
+            _card.ApplyChartSettings(_settings.ChartStyle, _settings.ChartRangeHours);
+            RefreshCardData();
+            if (_card.IsVisible) _card.Reposition();
         }
 
         private static void ToggleAutoStart()
@@ -445,6 +487,13 @@ namespace PeripheralBattery
         private static void RefreshCardData()
         {
             var devices = new List<CardDevice>();
+
+            // 折线图只在需要时才拉数据：柱状图模式下这轮拉 60 个点纯属浪费。
+            bool needPoints = _card.ChartStyle == "line";
+            int rangeHours = _card.ChartRangeHours;
+            double now = TimeText.UnixNow();
+            double windowSeconds = rangeHours * 3600.0;
+
             foreach (var slot in _devices)
             {
                 var reading = slot.Latest ?? new Reading { Connected = false };
@@ -453,12 +502,42 @@ namespace PeripheralBattery
                     // 从没读到过也要能显示「上次 xx%」
                     slot.Analysis = slot.History.Analyze(null, false);
                 }
-                devices.Add(new CardDevice
+
+                var device = new CardDevice
                 {
                     Label = slot.Label,
                     Reading = reading,
                     Analysis = slot.Analysis ?? new Analysis(),
-                });
+                };
+
+                if (needPoints)
+                {
+                    try
+                    {
+                        device.Points = slot.History.Points(windowSeconds, now);
+                    }
+                    catch (Exception)
+                    {
+                        // 历史文件损坏不该让卡片画不出来
+                        device.Points = new List<ChartPoint>();
+                    }
+
+                    // 横轴绝对范围：LineChart 靠它把点映射到横向位置。
+                    // 不给的话短数据会被拉伸铺满整段窗口（实机验证过）。
+                    device.FromUnix = now - windowSeconds;
+                    device.ToUnix = now;
+
+                    // 两端标签：短跨度显示时刻，长跨度显示日期。
+                    var from = TimeText.FromUnix(now - windowSeconds);
+                    var to = TimeText.FromUnix(now);
+                    bool shortSpan = rangeHours <= 24;
+                    device.RangeFrom = shortSpan
+                        ? from.ToString("HH:mm")
+                        : from.ToString("yyyy-MM-dd");
+                    device.RangeTo = shortSpan ? "现在" : to.ToString("MM-dd");
+                }
+
+                devices.Add(device);
             }
             _card.Render(devices);
         }

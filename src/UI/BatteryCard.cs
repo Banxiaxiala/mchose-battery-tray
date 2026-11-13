@@ -23,6 +23,7 @@ using System.Windows.Shapes;
 using System.Windows.Shell;
 using PeripheralBattery.Core;
 using PeripheralBattery.Models;
+using PeripheralBattery.Services;
 
 namespace PeripheralBattery.UI
 {
@@ -32,6 +33,23 @@ namespace PeripheralBattery.UI
         public string Label = "";
         public Reading Reading = new();
         public Analysis Analysis = new();
+
+        /// <summary>
+        /// 折线图用的点（按当前时间范围重采样过）。
+        /// 柱状图用 Analysis.Buckets，两者互不干扰 —— 切样式时不需要重拉数据。
+        /// </summary>
+        public List<ChartPoint> Points = new();
+
+        /// <summary>折线图两端的时间标签（如 "09-01" / "现在"）</summary>
+        public string RangeFrom = "";
+        public string RangeTo = "";
+
+        /// <summary>
+        /// 折线图的横轴绝对范围（Unix 秒）。
+        /// LineChart 按它把点映射到横轴 —— 缺失会把短数据拉伸铺满整段窗口。
+        /// </summary>
+        public double FromUnix;
+        public double ToUnix;
 
         /// <summary>离线时返回 null，界面显示「--」而不是伪造的历史值</summary>
         public int? Percent { get { return Reading.Connected ? Reading.Percent : null; } }
@@ -65,6 +83,18 @@ namespace PeripheralBattery.UI
 
         private Action? _onRefresh;
         private Action? _onSettings;
+
+        /// <summary>点图表样式切换（柱状图 / 折线图）</summary>
+        private Action<string>? _onChartStyle;
+
+        /// <summary>点时间范围切换（小时数）</summary>
+        private Action<int>? _onChartRange;
+
+        /// <summary>当前图表样式："bar" / "line"</summary>
+        public string ChartStyle { get; private set; } = "bar";
+
+        /// <summary>当前折线图时间跨度（小时）</summary>
+        public int ChartRangeHours { get; private set; } = 24;
 
         /// <summary>当前定位锚点（托盘图标的屏幕中心）</summary>
         public Point? Anchor { get; set; }
@@ -228,6 +258,24 @@ namespace PeripheralBattery.UI
             _onSettings = onSettings;
         }
 
+        /// <summary>
+        /// 图表交互回调。用回调而不是直接改 Settings，
+        /// 是因为设置要同时落盘（Settings.Save）并触发重新拉数据 ——
+        /// 卡片自己只负责画，不该知道持久化细节。
+        /// </summary>
+        public void SetChartHandlers(Action<string> onStyle, Action<int> onRange)
+        {
+            _onChartStyle = onStyle;
+            _onChartRange = onRange;
+        }
+
+        /// <summary>由 Program 传入当前设置，避免卡片自己读全局单例</summary>
+        public void ApplyChartSettings(string style, int rangeHours)
+        {
+            ChartStyle = Settings.ClampChartStyle(style);
+            ChartRangeHours = Settings.ClampChartRange(rangeHours);
+        }
+
         // ============================================================ 定位
         /// <summary>鼠标松开后允许下一次「按下」再判定一次</summary>
         public void Reposition()
@@ -367,6 +415,124 @@ namespace PeripheralBattery.UI
                 _root.Children.Add(BuildDevice(device));
                 first = false;
             }
+
+            // 切换条放在所有设备之后：它同时控制三台设备的图表样式，
+            // 放在最前会给人「只对第一台生效」的错觉。
+            _root.Children.Add(BuildChartSwitch());
+        }
+
+        /// <summary>
+        /// 图表切换条：第一行选样式，折线时第二行选时间跨度。
+        ///
+        /// 为什么拆成两行：288px 宽的卡片里，"柱状 折线" 加五个时间跨度
+        /// 一共 9 个胶囊，实机截图里全部挤到溢出。两行各管一件事更清楚，
+        /// 而且时间跨度只在折线图下需要。
+        /// </summary>
+        private StackPanel BuildChartSwitch()
+        {
+            var host = new StackPanel { Margin = new Thickness(0, 11, 0, 0) };
+
+            // ---- 第一行：样式 + （折线时的）当前范围文字 ----
+            var styleRow = new Grid();
+            styleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            styleRow.ColumnDefinitions.Add(new ColumnDefinition
+            { Width = new GridLength(1, GridUnitType.Star) });
+
+            var styleHost = new StackPanel { Orientation = Orientation.Horizontal };
+            styleHost.Children.Add(Chip("柱状", "bar", ChartStyle == "bar"));
+            styleHost.Children.Add(Chip("折线", "line", ChartStyle == "line"));
+            Grid.SetColumn(styleHost, 0);
+            styleRow.Children.Add(styleHost);
+
+            if (ChartStyle == "line")
+            {
+                var current = MakeText(Settings.ChartRangeLabel(ChartRangeHours), 9,
+                    FaintBrush());
+                current.HorizontalAlignment = HorizontalAlignment.Right;
+                Grid.SetColumn(current, 1);
+                styleRow.Children.Add(current);
+            }
+            host.Children.Add(styleRow);
+
+            // ---- 第二行：时间跨度（只折线图有） ----
+            if (ChartStyle == "line")
+            {
+                var rangeHost = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(0, 5, 0, 0),
+                };
+                foreach (int hours in Settings.ChartRangeOptions)
+                {
+                    rangeHost.Children.Add(RangeChip(hours));
+                }
+                host.Children.Add(rangeHost);
+            }
+
+            // ---- 说明：让用户知道自己在看什么 ----
+            string hint = ChartStyle == "line"
+                ? "折线看趋势　·　绿色段为充电"
+                : "每根柱是一个小时的均值　·　半透明为空闲";
+            var note = MakeText(hint, 9, FaintBrush());
+            note.Margin = new Thickness(0, 6, 0, 0);
+            host.Children.Add(note);
+
+            return host;
+        }
+
+        private Border Chip(string label, string value, bool active)
+        {
+            var border = new Border
+            {
+                Padding = new Thickness(8, 2.5, 8, 3.5),
+                Margin = new Thickness(0, 0, 5, 0),
+                CornerRadius = new CornerRadius(4),
+                Background = Palette.BrushOf(active
+                    ? (Theme.IsDark ? Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF)
+                                    : Color.FromArgb(0x1E, 0x00, 0x00, 0x00))
+                    : Colors.Transparent),
+                BorderThickness = new Thickness(1),
+                BorderBrush = Palette.BrushOf(active
+                    ? Colors.Transparent
+                    : (Theme.IsDark ? Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF)
+                                    : Color.FromArgb(0x1A, 0x00, 0x00, 0x00))),
+                Cursor = Cursors.Hand,
+                Child = MakeText(label, 9.5,
+                    active ? PrimaryBrush() : FaintBrush()),
+            };
+            border.MouseLeftButtonUp += (_, _) =>
+            {
+                if (ChartStyle == value) return;
+                // 必须真的改状态再重绘：只发回调不改外观，用户会觉得「点了没反应」
+                ChartStyle = value;
+                _onChartStyle?.Invoke(value);
+            };
+            return border;
+        }
+
+        private Border RangeChip(int hours)
+        {
+            bool active = ChartRangeHours == hours;
+            var border = new Border
+            {
+                Padding = new Thickness(6, 2, 6, 3),
+                Margin = new Thickness(0, 0, 4, 0),
+                CornerRadius = new CornerRadius(4),
+                Background = Palette.BrushOf(active
+                    ? (Theme.IsDark ? Color.FromArgb(0x38, 0xFF, 0xFF, 0xFF)
+                                    : Color.FromArgb(0x1E, 0x00, 0x00, 0x00))
+                    : Colors.Transparent),
+                Cursor = Cursors.Hand,
+                Child = MakeText(Settings.ChartRangeShortLabel(hours), 9,
+                    active ? PrimaryBrush() : FaintBrush()),
+            };
+            border.MouseLeftButtonUp += (_, _) =>
+            {
+                if (ChartRangeHours == hours) return;
+                ChartRangeHours = hours;
+                _onChartRange?.Invoke(hours);
+            };
+            return border;
         }
 
         private Brush PrimaryBrush()
@@ -583,13 +749,20 @@ namespace PeripheralBattery.UI
             panel.Children.Add(BuildProgressBar(online ? percent : 0, color,
                 reading.Charging, online));
 
-            // ---- 第四行：24h 区间说明 ----
+            // ---- 第四行：区间说明 ----
+            //
+            // ⚠️ 这里的 min/max 来自 Analysis（固定 24 小时窗口的预测数据），
+            // 而折线图可能正在看 2 年 —— 标题必须跟着图表范围变，
+            // 否则用户看着 2 年曲线、字上写着「近 24 小时」，两个都不信。
             string scope;
+            string scopePrefix = ChartStyle == "line"
+                ? "近 " + Settings.ChartRangeLabel(ChartRangeHours) + " "
+                : "近 24 小时 ";
             if (analysis.MinPercent >= 0 && analysis.MaxPercent >= 0)
             {
                 scope = analysis.MinPercent == analysis.MaxPercent
-                    ? "近 24 小时 " + analysis.MinPercent + "%"
-                    : "近 24 小时 " + analysis.MinPercent + "% ~ " + analysis.MaxPercent + "%";
+                    ? scopePrefix + analysis.MinPercent + "%"
+                    : scopePrefix + analysis.MinPercent + "% ~ " + analysis.MaxPercent + "%";
                 if (analysis.Forecast.RatePerHour > 0)
                 {
                     scope += " · 每小时 " + analysis.Forecast.RatePerHour.ToString("0.0") + "%";
@@ -601,16 +774,35 @@ namespace PeripheralBattery.UI
             }
             else
             {
-                scope = "近 24 小时 暂无数据";
+                scope = scopePrefix + "暂无数据";
             }
             var scopeText = MakeText(scope, 9.5, FaintBrush());
             scopeText.Margin = new Thickness(0, 7, 0, 4);
             panel.Children.Add(scopeText);
 
-            // ---- 第五行：柱状图 ----
-            var chart = new SparkChart { Height = ChartHeight };
-            chart.SetData(analysis.Buckets, Theme.IsDark);
-            panel.Children.Add(chart);
+            // ---- 第五行：图表（柱状 / 折线可切） ----
+            // 用了 StackPanel 而不是两个图都建一遍：WPF 控件不在可视树里
+            // 就不会渲染，但白建一遍 60 个点的几何仍是浪费（每轮刷新都会重建）。
+            if (ChartStyle == "line")
+            {
+                var line = new LineChart
+                {
+                    Height = ChartHeight,
+                    Margin = new Thickness(0, 0, 0, 0),
+                };
+                // 必须把绝对时间范围一并传进去：只按数组索引摆点会把
+                // 「2 年窗口里只有 24 小时数据」拉伸成两年趋势（实机验证过）。
+                line.SetData(device.Points, Theme.IsDark,
+                    device.RangeFrom, device.RangeTo,
+                    device.FromUnix, device.ToUnix);
+                panel.Children.Add(line);
+            }
+            else
+            {
+                var chart = new SparkChart { Height = ChartHeight };
+                chart.SetData(analysis.Buckets, Theme.IsDark);
+                panel.Children.Add(chart);
+            }
 
             return panel;
         }

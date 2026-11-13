@@ -79,6 +79,56 @@ namespace PeripheralBattery.Models
         public bool HasData { get { return Percent > 0 && !Sleeping; } }
     }
 
+    /// <summary>
+    /// 长期历史的一个聚合区间（小时级或天级）。
+    ///
+    /// 为什么需要它：原始样本只保留 48 小时（见 HistoryAnalysis.RetainSeconds）。
+    /// 要做到「看 24 个月趋势」又不把文件飈到几十 MB，就必须把旧样本
+    /// 折叠成聚合值 —— 聚合后每个小时/每天只留 4 个数字。
+    ///
+    /// Start 是区间起点（Unix 秒，本地时区对齐）。Percent / MinPercent /
+    /// MaxPercent 是该区间内的统计值，Samples 是参与统计的原始样本数。
+    /// 电量用**平均值**而不是取最后一个：聚合之后单点会随机跳动，
+    /// 取末值会让折线按采样时间抖动，看不出真实趋势。
+    /// </summary>
+    public sealed class Aggregate
+    {
+        public double Start { get; set; }
+        /// <summary>区间长度（秒）。小时级 3600，天级 86400</summary>
+        public int Span { get; set; }
+        public int Percent { get; set; }
+        public int MinPercent { get; set; }
+        public int MaxPercent { get; set; }
+        /// <summary>区间内有多少个原始样本。0 = 补出来的空段</summary>
+        public int Samples { get; set; }
+        /// <summary>区间内是否出现过充电</summary>
+        public bool Charging { get; set; }
+
+        public bool HasData { get { return Samples > 0; } }
+        public double End { get { return Start + Span; } }
+    }
+
+    /// <summary>
+    /// 折线图上的一个点。与 Aggregate 分开是因为图表只关心「画在哪、画多高」，
+    /// 而且折线图会把小时级聚合再重采样成固定数量的点。
+    /// </summary>
+    public struct ChartPoint
+    {
+        public double T;
+        public int Percent;
+        public bool Charging;
+        /// <summary>该点代表的数据量；false 表示补出来的空段（不画线、断点）</summary>
+        public bool HasData;
+
+        public ChartPoint(double t, int percent, bool charging, bool hasData)
+        {
+            T = t;
+            Percent = percent;
+            Charging = charging;
+            HasData = hasData;
+        }
+    }
+
     /// <summary>续航预测</summary>
     public sealed class Forecast
     {
@@ -121,6 +171,12 @@ namespace PeripheralBattery.Models
         public int LastKnownPercent = -1;
         public double LastKnownAt;
         public int SampleCount;
+
+        /// <summary>
+        /// 折线图用的点（已按当前选择的时间范围重采样）。
+        /// 与 Buckets 共存：柱状图看每小时分布，折线图看趋势，两者用途不同。
+        /// </summary>
+        public System.Collections.Generic.List<ChartPoint> Points = new();
 
         /// <summary>「上次 77% · 2 小时前」；无记忆时返回空串（绝不编数字）</summary>
         public string DescribeLastKnown(double? now = null)

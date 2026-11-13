@@ -19,7 +19,8 @@ namespace PeripheralBattery.Tools
 {
     internal static class CardPreview
     {
-        public static void Run(string outputPath)
+        public static void Run(string outputPath, string style = "bar",
+            int rangeHours = 24)
         {
             double now = TimeText.UnixNow();
 
@@ -51,6 +52,23 @@ namespace PeripheralBattery.Tools
             var keyboardAnalysis = HistoryAnalysis.Analyze(keyboardSamples, 68, false, now,
                 keyboardSamples[^1]);
 
+            // 折线图数据：用与分析同源的样本重采样，保证两种样式看到的是同一份历史
+            List<ChartPoint> PointsOf(List<Sample> source, int hours, out string from,
+                out string to, out double fromT, out double toT)
+            {
+                double window = hours * 3600.0;
+                fromT = now - window;
+                toT = now;
+                var folded = HistoryAnalysis.Fold(source, HistoryAnalysis.HourSpan);
+                var points = HistoryAnalysis.SamplePoints(
+                    folded, fromT, toT, 60);
+                var start = TimeText.FromUnix(now - window);
+                var end = TimeText.FromUnix(now);
+                from = hours <= 24 ? start.ToString("HH:mm") : start.ToString("yyyy-MM-dd");
+                to = hours <= 24 ? "现在" : end.ToString("MM-dd");
+                return points;
+            }
+
             var devices = new List<CardDevice>
             {
                 new()
@@ -62,6 +80,13 @@ namespace PeripheralBattery.Tools
                         Connected = true, Status = "放电中", Transport = "HID++",
                     },
                     Analysis = mouseAnalysis,
+                    Points = PointsOf(mouseSamples, rangeHours,
+                        out string f_mouseSamples, out string t_mouseSamples,
+                        out double ft_mouseSamples, out double tt_mouseSamples),
+                    RangeFrom = f_mouseSamples,
+                    RangeTo = t_mouseSamples,
+                    FromUnix = ft_mouseSamples,
+                    ToUnix = tt_mouseSamples,
                 },
                 new()
                 {
@@ -72,6 +97,13 @@ namespace PeripheralBattery.Tools
                         Connected = false, Status = "", Transport = "PA-PI",
                     },
                     Analysis = headsetAnalysis,
+                    Points = PointsOf(headsetSamples, rangeHours,
+                        out string f_headsetSamples, out string t_headsetSamples,
+                        out double ft_headsetSamples, out double tt_headsetSamples),
+                    RangeFrom = f_headsetSamples,
+                    RangeTo = t_headsetSamples,
+                    FromUnix = ft_headsetSamples,
+                    ToUnix = tt_headsetSamples,
                 },
                 new()
                 {
@@ -82,6 +114,13 @@ namespace PeripheralBattery.Tools
                         Connected = true, Status = "已连接", Transport = "VIA",
                     },
                     Analysis = keyboardAnalysis,
+                    Points = PointsOf(keyboardSamples, rangeHours,
+                        out string f_keyboardSamples, out string t_keyboardSamples,
+                        out double ft_keyboardSamples, out double tt_keyboardSamples),
+                    RangeFrom = f_keyboardSamples,
+                    RangeTo = t_keyboardSamples,
+                    FromUnix = ft_keyboardSamples,
+                    ToUnix = tt_keyboardSamples,
                 },
             };
 
@@ -89,6 +128,7 @@ namespace PeripheralBattery.Tools
             app.Resources["PreviewMode"] = true;
 
             var card = new BatteryCard();
+            card.ApplyChartSettings(style, rangeHours);
             card.Render(devices);
             card.Anchor = new Point(2300, 1400);
             card.Show();

@@ -18,6 +18,11 @@ build/
 *.spec
 *.pdb
 
+# ── 便携模式的运行时数据（exe 旁边的 data/：设置、历史、日志）──
+# 这些是用户数据，绝不能提交；但文件夹本身由程序自动创建，无需 .gitkeep
+/data/
+/dist/data/
+
 # ── 测试 / 打包产物 ──
 TestResults/
 *.trx

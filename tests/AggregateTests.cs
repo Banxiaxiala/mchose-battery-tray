@@ -304,6 +304,66 @@ namespace PeripheralBattery.Tests
             Assert.Equal(0, withData, "窗口外的数据不能被画进来");
         }
 
+        // ============================================================ 柱状图分桶
+
+        [Test]
+        public static void BucketsRespectWindowHours()
+        {
+            // 柱状图必须能跟时间选择走。硬编码 24 根 × 1 小时的旧实现，
+            // 在 30 天窗口下会「只显示最后一天」，用户以为时间选择没用。
+            double now = 1_800_000_000.0;
+            var samples = new List<Sample>();
+            for (int i = 0; i < 30 * 24; i++)
+            {
+                samples.Add(new Sample(now - i * 3600, 60, false));
+            }
+
+            var dayBuckets = HistoryAnalysis.BuildBuckets(samples, now, 24 * 30, null, 60);
+            Assert.Equal(24, dayBuckets.Count, "柱数固定 24，与窗口长度无关");
+            foreach (var bucket in dayBuckets)
+            {
+                // 30 天 / 24 根 = 每根 30 小时，应该都有数据
+                Assert.True(bucket.Count > 0, "30 天窗口下每根柱都该有样本");
+            }
+
+            // 标签要变成日期形（MM-dd），不能还是 HH:mm ——
+            // 一根柱代表 30 小时，标上「13:00」毫无意义
+            Assert.True(dayBuckets[0].Hour.Contains("-"),
+                "长窗口的刻度应为日期：" + dayBuckets[0].Hour);
+        }
+
+        [Test]
+        public static void BucketsKeepHourlyLabelsForShortWindow()
+        {
+            double now = 1_800_000_000.0;
+            var samples = new List<Sample>();
+            for (int i = 0; i < 24; i++) samples.Add(new Sample(now - i * 3600, 70, false));
+
+            var buckets = HistoryAnalysis.BuildBuckets(samples, now, 24, null, 70);
+            Assert.Equal(24, buckets.Count, "24 小时仍是 24 根");
+            Assert.True(buckets[0].Hour.Contains(":"),
+                "短窗口刻度应为时刻：" + buckets[0].Hour);
+        }
+
+        [Test]
+        public static void BucketsAverageWithinLongBuckets()
+        {
+            // 一根柱跨 30 小时时，取区间平均而不是末值：
+            // 末值可能正好是刚开机的一瞬间，会把整天代表错。
+            double now = 1_800_000_000.0;
+            var samples = new List<Sample>
+            {
+                new(now - 20 * 3600, 90, false),
+                new(now - 19 * 3600, 70, false),
+                new(now - 18 * 3600, 50, false),
+            };
+
+            var buckets = HistoryAnalysis.BuildBuckets(samples, now, 24 * 30, null, 50);
+            var filled = buckets.FindAll(b => b.Count > 0);
+            Assert.Equal(1, filled.Count, "三点挤在同一根柱里");
+            Assert.Equal(70, filled[0].Percent, "(90+70+50)/3 = 70，不是末值 50");
+        }
+
         // ============================================================ 保留常量
 
         [Test]

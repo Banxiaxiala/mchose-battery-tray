@@ -510,27 +510,45 @@ namespace PeripheralBattery
                     Analysis = slot.Analysis ?? new Analysis(),
                 };
 
-                if (needPoints)
+                // 两种样式都要按时间范围拉数据：
+                // 柱状图硬编码 24 小时的话，选 30 天时它会默默不生效，
+                // 用户会以为「时间选择对柱状图没用」。
+                try
                 {
-                    try
+                    if (needPoints)
                     {
                         device.Points = slot.History.Points(windowSeconds, now);
                     }
-                    catch (Exception)
+                    else
                     {
-                        // 历史文件损坏不该让卡片画不出来
-                        device.Points = new List<ChartPoint>();
+                        device.Buckets = slot.History.Buckets(rangeHours,
+                            reading.Connected ? reading.Percent : null,
+                            reading.Charging, now);
                     }
+                }
+                catch (Exception)
+                {
+                    // 历史文件损坏不该让卡片画不出来
+                    if (needPoints) device.Points = new List<ChartPoint>();
+                }
 
-                    // 横轴绝对范围：LineChart 靠它把点映射到横向位置。
-                    // 不给的话短数据会被拉伸铺满整段窗口（实机验证过）。
-                    device.FromUnix = now - windowSeconds;
-                    device.ToUnix = now;
+                // 范围统计：标题写「近 7 天 51%~89%」时，那个区间必须真的是 7 天
+                try
+                {
+                    var stats = slot.History.Stats(rangeHours, now);
+                    device.RangeMin = stats.min;
+                    device.RangeMax = stats.max;
+                    device.RangeActiveHours = stats.activeHours;
+                }
+                catch (Exception) { }
 
-                    // 两端标签：短跨度显示时刻，长跨度显示日期。
+                // 横轴标签两种样式共用
+                {
                     var from = TimeText.FromUnix(now - windowSeconds);
                     var to = TimeText.FromUnix(now);
                     bool shortSpan = rangeHours <= 24;
+                    device.FromUnix = now - windowSeconds;
+                    device.ToUnix = now;
                     device.RangeFrom = shortSpan
                         ? from.ToString("HH:mm")
                         : from.ToString("yyyy-MM-dd");

@@ -45,6 +45,21 @@ namespace PeripheralBattery.UI
         public string RangeTo = "";
 
         /// <summary>
+        /// 柱状图数据（按当前时间范围分桶）。
+        /// null 表示还没拉取，此时回落到 Analysis.Buckets（固定 24 小时）。
+        /// </summary>
+        public List<Bucket>? Buckets;
+
+        /// <summary>
+        /// 当前时间范围内的统计（min / max / 在线小时）。
+        /// -1 表示没有数据。不能用 Analysis 里那组 —— 那固定是 24 小时窗口，
+        /// 标在「近 7 天」的标题上就是假数。
+        /// </summary>
+        public int RangeMin = -1;
+        public int RangeMax = -1;
+        public int RangeActiveHours;
+
+        /// <summary>
         /// 折线图的横轴绝对范围（Unix 秒）。
         /// LineChart 按它把点映射到横轴 —— 缺失会把短数据拉伸铺满整段窗口。
         /// </summary>
@@ -422,17 +437,18 @@ namespace PeripheralBattery.UI
         }
 
         /// <summary>
-        /// 图表切换条：第一行选样式，折线时第二行选时间跨度。
+        /// 图表切换条：样式一行，时间跨度一行。
         ///
-        /// 为什么拆成两行：288px 宽的卡片里，"柱状 折线" 加五个时间跨度
-        /// 一共 9 个胶囊，实机截图里全部挤到溢出。两行各管一件事更清楚，
-        /// 而且时间跨度只在折线图下需要。
+        /// 两种样式都提供时间选择 —— 柱状图只给 24 小时是错的：
+        /// 用户想知道「上周哪天掉得快」就无从下手。
+        /// 柱状图看的是「分布」（每小时/每天的高低），
+        /// 折线图看的是「趋势」（连续变化），但两者都需要同一套时间轴。
         /// </summary>
         private StackPanel BuildChartSwitch()
         {
             var host = new StackPanel { Margin = new Thickness(0, 11, 0, 0) };
 
-            // ---- 第一行：样式 + （折线时的）当前范围文字 ----
+            // ---- 第一行：样式 + 当前范围文字 ----
             var styleRow = new Grid();
             styleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             styleRow.ColumnDefinitions.Add(new ColumnDefinition
@@ -444,40 +460,60 @@ namespace PeripheralBattery.UI
             Grid.SetColumn(styleHost, 0);
             styleRow.Children.Add(styleHost);
 
-            if (ChartStyle == "line")
-            {
-                var current = MakeText(Settings.ChartRangeLabel(ChartRangeHours), 9,
-                    FaintBrush());
-                current.HorizontalAlignment = HorizontalAlignment.Right;
-                Grid.SetColumn(current, 1);
-                styleRow.Children.Add(current);
-            }
+            var current = MakeText(ChartRangeLabelForBar(), 9, FaintBrush());
+            current.HorizontalAlignment = HorizontalAlignment.Right;
+            Grid.SetColumn(current, 1);
+            styleRow.Children.Add(current);
             host.Children.Add(styleRow);
 
-            // ---- 第二行：时间跨度（只折线图有） ----
-            if (ChartStyle == "line")
+            // ---- 第二行：时间跨度 ----
+            var rangeHost = new StackPanel
             {
-                var rangeHost = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Margin = new Thickness(0, 5, 0, 0),
-                };
-                foreach (int hours in Settings.ChartRangeOptions)
-                {
-                    rangeHost.Children.Add(RangeChip(hours));
-                }
-                host.Children.Add(rangeHost);
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 5, 0, 0),
+            };
+            foreach (int hours in Settings.ChartRangeOptions)
+            {
+                rangeHost.Children.Add(RangeChip(hours));
             }
+            host.Children.Add(rangeHost);
 
             // ---- 说明：让用户知道自己在看什么 ----
-            string hint = ChartStyle == "line"
-                ? "折线看趋势　·　绿色段为充电"
-                : "每根柱是一个小时的均值　·　半透明为空闲";
+            // 柱状图的每根柱宽度随时间范围变，必须说清楚一根柱代表多久，
+            // 否则用户会把「7 天视图的 24 根柱」误读成「每小时一根」。
+            string hint;
+            if (ChartStyle == "line")
+            {
+                hint = "折线看趋势　·　绿色段为充电";
+            }
+            else
+            {
+                double perBar = ChartRangeHours / 24.0;
+                hint = perBar < 1
+                    ? "每根柱是一个小时的均值"
+                    : "每根柱 " + FormatPerBar(perBar) + " 的均值　·　半透明为空闲";
+            }
             var note = MakeText(hint, 9, FaintBrush());
             note.Margin = new Thickness(0, 6, 0, 0);
             host.Children.Add(note);
 
             return host;
+        }
+
+        /// <summary>每根柱代表多久，用于柱状图的说明文字</summary>
+        private string FormatPerBar(double hours)
+        {
+            if (hours >= 24) return (hours / 24).ToString("0.#") + " 天";
+            return hours.ToString("0.#") + " 小时";
+        }
+
+        /// <summary>右上角显示当前范围；柱状图额外标出每根柱的宽度</summary>
+        private string ChartRangeLabelForBar()
+        {
+            string label = Settings.ChartRangeLabel(ChartRangeHours);
+            if (ChartStyle != "bar") return label;
+            double perBar = ChartRangeHours / 24.0;
+            return label + "　每柱 " + FormatPerBar(perBar);
         }
 
         private Border Chip(string label, string value, bool active)
@@ -754,22 +790,29 @@ namespace PeripheralBattery.UI
             // ⚠️ 这里的 min/max 来自 Analysis（固定 24 小时窗口的预测数据），
             // 而折线图可能正在看 2 年 —— 标题必须跟着图表范围变，
             // 否则用户看着 2 年曲线、字上写着「近 24 小时」，两个都不信。
+            // 两种样式都按当前时间范围写标题：柱状图也只给 24 小时的话，
+            // 用户选 7 天会看到「近 24 小时」配 7 天的图，两边不自洽。
             string scope;
-            string scopePrefix = ChartStyle == "line"
-                ? "近 " + Settings.ChartRangeLabel(ChartRangeHours) + " "
-                : "近 24 小时 ";
-            if (analysis.MinPercent >= 0 && analysis.MaxPercent >= 0)
+            string scopePrefix = "近 " + Settings.ChartRangeLabel(ChartRangeHours) + " ";
+            // 用 device 上的范围统计，不用 analysis 的（后者固定 24 小时）。
+            int rangeMin = device.RangeMin >= 0 ? device.RangeMin : analysis.MinPercent;
+            int rangeMax = device.RangeMax >= 0 ? device.RangeMax : analysis.MaxPercent;
+            int rangeActive = device.RangeMax >= 0
+                ? device.RangeActiveHours
+                : analysis.ActiveHours;
+
+            if (rangeMin >= 0 && rangeMax >= 0)
             {
-                scope = analysis.MinPercent == analysis.MaxPercent
-                    ? scopePrefix + analysis.MinPercent + "%"
-                    : scopePrefix + analysis.MinPercent + "% ~ " + analysis.MaxPercent + "%";
+                scope = rangeMin == rangeMax
+                    ? scopePrefix + rangeMin + "%"
+                    : scopePrefix + rangeMin + "% ~ " + rangeMax + "%";
                 if (analysis.Forecast.RatePerHour > 0)
                 {
                     scope += " · 每小时 " + analysis.Forecast.RatePerHour.ToString("0.0") + "%";
                 }
-                if (analysis.ActiveHours > 0)
+                if (rangeActive > 0)
                 {
-                    scope += " · 在线 " + analysis.ActiveHours + " 小时";
+                    scope += " · 在线 " + rangeActive + " 小时";
                 }
             }
             else
@@ -800,7 +843,9 @@ namespace PeripheralBattery.UI
             else
             {
                 var chart = new SparkChart { Height = ChartHeight };
-                chart.SetData(analysis.Buckets, Theme.IsDark);
+                // 优先用按时间范围算好的桶；没有就退回 24 小时的固定分桶
+                chart.SetData(device.Buckets ?? analysis.Buckets, Theme.IsDark,
+                    device.RangeFrom, device.RangeTo);
                 panel.Children.Add(chart);
             }
 

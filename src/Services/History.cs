@@ -289,9 +289,41 @@ namespace PeripheralBattery.Services
         public static List<Bucket> BuildBuckets(List<Sample> samples, double now,
             int? currentPercent = null, int lastKnown = -1)
         {
+            return BuildBuckets(samples, now, 24, currentPercent, lastKnown);
+        }
+
+        /// <summary>
+        /// 把样本分成 barCount 根柱子，跨越 windowHours 小时。
+        ///
+        /// 柱状图要能跟着时间选择走（与折线图共用 24h/7d/30d/1y/2y），
+        /// 不能硬编码 24 根 × 1 小时：看 30 天时 24 根柱 = 一天 30 小时，
+        /// 完全读不出信息。
+        ///
+        /// 柱宽（小时/根）= windowHours / barCount，按**本地时区**对齐到底层
+        /// 聚合桶（小时或天），否则「今天」会从 UTC 凌晨划开。
+        ///
+        /// 设计取舍：不管窗口多长，**柱子数量固定**（默认 24）。这样卡片的
+        /// 视觉密度不变，换来的是「每根柱代表的时间变长」—— 比「柱子越画越细
+        /// 到看不清」好得多。
+        /// </summary>
+        public static List<Bucket> BuildBuckets(List<Sample> samples, double now,
+            int windowHours, int? currentPercent = null, int lastKnown = -1,
+            int barCount = 24)
+        {
+            if (barCount <= 0) barCount = 24;
+            if (windowHours <= 0) windowHours = 24;
+
             var ordered = samples.OrderBy(s => s.T).ToList();
-            long thisHour = (long)(now / 3600) * 3600;
-            long windowStart = thisHour - 23 * 3600;
+
+            // 桶宽按本地时区对齐：小时级向下取整到整点，天级取到本地零点。
+            double stepSeconds = windowHours * 3600.0 / barCount;
+            double localOffset = TimeZoneInfo.Local.GetUtcOffset(DateTime.UtcNow)
+                .TotalSeconds;
+
+            // 当前时间所在的桶的起点（向上对齐到桶边界）
+            double alignedNow = Math.Floor((now + localOffset) / stepSeconds)
+                * stepSeconds - localOffset;
+            double windowStart = alignedNow - (barCount - 1) * stepSeconds;
 
             // 窗口起点之前的最后一个样本，作为第一根柱的延续基线
             int baseline = -1;
@@ -305,31 +337,40 @@ namespace PeripheralBattery.Services
                 baseline = lastKnown > 0 ? lastKnown : (currentPercent ?? -1);
             }
 
-            var buckets = new List<Bucket>(24);
+            string FormatLabel(double start) => stepSeconds >= 86400
+                ? TimeText.FromUnix(start).ToString("MM-dd")
+                : TimeText.FromUnix(start).ToString("HH:mm");
+
+            var buckets = new List<Bucket>(barCount);
             int idx = 0;
             int running = baseline;
-            for (int i = 0; i < 24; i++)
+            for (int i = 0; i < barCount; i++)
             {
-                long start = thisHour - (23 - i) * 3600;
-                long end = start + 3600;
+                double start = alignedNow - (barCount - 1 - i) * stepSeconds;
+                double end = start + stepSeconds;
+                long sum = 0;
                 int count = 0;
-                int value = running;
+                int lastValue = running;
                 while (idx < ordered.Count && ordered[idx].T < start) idx++;
                 int j = idx;
                 while (j < ordered.Count && ordered[j].T < end)
                 {
+                    sum += ordered[j].Percent;
+                    lastValue = ordered[j].Percent;
                     count++;
-                    value = ordered[j].Percent;
                     j++;
                 }
-                if (count > 0) running = value;
+                if (count > 0) running = lastValue;
 
                 buckets.Add(new Bucket
                 {
-                    Hour = TimeText.FromUnix(start).ToString("HH:mm"),
-                    Percent = value,
+                    Hour = FormatLabel(start),
+                    // 长窗口下取**区间平均**而不是末值：
+                    // 一天里末值可能正好是刚开机的一瞬间，会把整天代表错。
+                    // 24 小时视图仍然是末值（count==1，两者等价）
+                    Percent = count > 0 ? (int)Math.Round((double)sum / count) : running,
                     Count = count,
-                    Sleeping = count == 0 && value > 0,
+                    Sleeping = count == 0 && running > 0,
                 });
             }
             return buckets;
@@ -422,6 +463,67 @@ namespace PeripheralBattery.Services
             result.ActiveHours = result.Buckets.Count(b => b.Count > 0);
             result.Forecast = ForecastOf(ordered, currentPercent, charging, current);
             return result;
+        }
+
+        /// <summary>
+        /// 按任意时间范围统计 min/max 与在线时长。
+        ///
+        /// 为什么要单独一个：上面的 Analyze 里 min/max 固定取 24 小时窗口
+        /// （续航预测需要固定窗口才可比）。但卡片标题会写「近 7 天 51%~89%」，
+        /// 如果那个区间其实只算了 24 小时，就是在报假数。
+        ///
+        /// 超过原始保留期时改从聚合层统计 —— 否则选 30 天时
+        /// 只有最后 48 小时参与，最大/最小值会失真。
+        /// </summary>
+        public static (int min, int max, int activeBuckets) RangeStats(
+            List<Sample> samples, List<Aggregate> hours, List<Aggregate> days,
+            double now, double windowSeconds)
+        {
+            int min = -1, max = -1, active = 0;
+
+            void Take(int percent)
+            {
+                if (percent <= 0 || percent > 100) return;
+                if (min < 0 || percent < min) min = percent;
+                if (max < 0 || percent > max) max = percent;
+            }
+
+            if (windowSeconds <= RetainSeconds)
+            {
+                double from = now - windowSeconds;
+                foreach (var sample in samples)
+                {
+                    if (sample.T < from || sample.T > now) continue;
+                    Take(sample.Percent);
+                }
+                active = BuildBuckets(
+                    samples.Where(s => s.T >= from && s.T <= now).ToList(),
+                    now, (int)Math.Round(windowSeconds / 3600), null, -1)
+                    .Count(b => b.Count > 0);
+                return (min, max, active);
+            }
+
+            double cutoff = now - windowSeconds;
+            var source = windowSeconds <= HourAggregateRetain ? hours : days;
+            if (source == null) return (min, max, 0);
+
+            foreach (var item in source)
+            {
+                if (!item.HasData || item.End <= cutoff || item.Start > now) continue;
+                Take(item.MinPercent);
+                Take(item.MaxPercent);
+            }
+
+            // 在线时长用「有数据的桶占比 × 窗口小时数」估算。
+            // 聚合层的 Span 是客观值，比拿样本数倒推更靠得住。
+            int span = windowSeconds <= HourAggregateRetain ? HourSpan : DaySpan;
+            int counted = 0;
+            foreach (var item in source)
+            {
+                if (item.HasData && item.End > cutoff && item.Start <= now) counted++;
+            }
+            active = span > 0 ? counted * span / 3600 : 0;
+            return (min, max, active);
         }
     }
 
@@ -737,6 +839,84 @@ namespace PeripheralBattery.Services
                     ? _hours!
                     : _days!;
                 return HistoryAnalysis.SamplePoints(source, from, current, targetPoints);
+            }
+        }
+
+        /// <summary>
+        /// 指定时间范围的柱状图数据。
+        ///
+        /// 与 Points 一样按层次选择数据源：窗口超过原始保留期就换成聚合层，
+        /// 否则拉 30 天时只有最后 48 小时能画出柱子，前面全空。
+        ///
+        /// 返回的 Bucket 数量固定（默认 24），每根柱代表 windowHours/24 小时。
+        /// </summary>
+        public List<Bucket> Buckets(double windowHours, int? currentPercent,
+            bool charging, double? now = null, int barCount = 24)
+        {
+            double current = now ?? TimeText.UnixNow();
+            double windowSeconds = Math.Max(3600, windowHours * 3600);
+
+            lock (_gate)
+            {
+                LoadAll();
+
+                // 窗口内只用原始样本 → 直接交给 BuildBuckets（它自带分桶）
+                if (windowSeconds <= HistoryAnalysis.RetainSeconds)
+                {
+                    var fresh = _samples!
+                        .Where(s => s.T >= current - windowSeconds && s.T <= current)
+                        .ToList();
+                    return HistoryAnalysis.BuildBuckets(fresh, current,
+                        (int)Math.Round(windowHours), currentPercent, -1, barCount);
+                }
+
+                // 长窗口：先把聚合层展开成样本再分桶。
+                // 每个聚合贡献一条（用它的平均值），样本数用 Samples 作为权重
+                // —— 直接当成单条样本会把「一天只有 2 条记录」和
+                // 「一天有 200 条记录」看得一样重。
+                //
+                // 这里不追求像素级精度（柱状图本来就只看大体形状），
+                // 但必须保证「看得见的都是有数据的时段」。
+                var source = windowSeconds <= HistoryAnalysis.HourAggregateRetain
+                    ? _hours!
+                    : _days!;
+
+                var expanded = source
+                    .Where(a => a.HasData && a.End > current - windowSeconds)
+                    .SelectMany(a =>
+                    {
+                        // 用平均值重复 Samples 次会在长窗口里把内存拉爆，
+                        // 所以重复次数封顶 20：权重足够体现相对量级，
+                        // 又不会因为一天 200 条样本就多存 200 个点。
+                        int weight = Math.Clamp(a.Samples, 1, 20);
+                        var list = new List<Sample>(weight);
+                        for (int i = 0; i < weight; i++)
+                        {
+                            list.Add(new Sample(a.Start, a.Percent, a.Charging));
+                        }
+                        return list;
+                    })
+                    .ToList();
+
+                return HistoryAnalysis.BuildBuckets(expanded, current,
+                    (int)Math.Round(windowHours), currentPercent, -1, barCount);
+            }
+        }
+
+        /// <summary>
+        /// 指定时间范围的统计（min / max / 在线小时），用于卡片标题。
+        /// 与 Analyze 分开：Analyze 的 min/max 固定 24 小时窗口（预测用），
+        /// 这里跟随用户选的时间范围。
+        /// </summary>
+        public (int min, int max, int activeHours) Stats(double windowHours,
+            double? now = null)
+        {
+            double current = now ?? TimeText.UnixNow();
+            lock (_gate)
+            {
+                LoadAll();
+                return HistoryAnalysis.RangeStats(_samples!, _hours!, _days!,
+                    current, Math.Max(3600, windowHours * 3600));
             }
         }
 

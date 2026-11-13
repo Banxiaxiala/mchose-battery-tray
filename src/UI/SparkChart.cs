@@ -22,15 +22,25 @@ namespace PeripheralBattery.UI
     {
         private List<Bucket> _buckets = new();
         private bool _dark = true;
+        private string _leftLabel = "-24h";
+        private string _rightLabel = "现在";
 
-        private const double BarWidth = 6.5;
-        private const double Gap = 2.5;
+        /// <summary>柱宽。柱数多时会自动收窄，免得在窄卡片里溢出</summary>
+        private const double DefaultBarWidth = 6.5;
+        private const double MinBarWidth = 2.0;
+        private const double DefaultGap = 2.5;
+        private const double MinGap = 0.8;
+
+        /// <summary>底部刻度带高度（容纳「-24h」这类时间标签）</summary>
         private const double ScaleBand = 15;
 
-        public void SetData(List<Bucket> buckets, bool dark)
+        public void SetData(List<Bucket> buckets, bool dark,
+            string leftLabel = "", string rightLabel = "")
         {
             _buckets = buckets ?? new List<Bucket>();
             _dark = dark;
+            _leftLabel = string.IsNullOrEmpty(leftLabel) ? "-24h" : leftLabel;
+            _rightLabel = string.IsNullOrEmpty(rightLabel) ? "现在" : rightLabel;
             InvalidateVisual();
         }
 
@@ -75,7 +85,22 @@ namespace PeripheralBattery.UI
             dc.DrawLine(guidePen, new Point(0, baseline), new Point(width, baseline));
 
             // ---- 柱子 ----
-            double totalWidth = _buckets.Count * (BarWidth + Gap) - Gap;
+            // 柱宽按可用宽度自适应：24 根时用默认 6.5px，
+            // 如果将来把柱数调大（或卡片变窄），按比例收窄而不是画到溢出。
+            double barWidth = DefaultBarWidth;
+            double gap = DefaultGap;
+            if (_buckets.Count > 0)
+            {
+                double available = width - 4;
+                double ideal = available / _buckets.Count - DefaultGap;
+                if (ideal < DefaultBarWidth)
+                {
+                    barWidth = Math.Max(MinBarWidth, ideal);
+                    gap = Math.Max(MinGap, (available / _buckets.Count) - barWidth);
+                }
+            }
+
+            double totalWidth = _buckets.Count * (barWidth + gap) - gap;
             double x = Math.Max(0, (width - totalWidth) / 2);
 
             foreach (var bucket in _buckets)
@@ -93,8 +118,8 @@ namespace PeripheralBattery.UI
                     brush.Freeze();
 
                     // 顶部圆角、底部方角：用两个矩形拼出胶囊上半部分
-                    double radius = Math.Min(BarWidth / 2, barHeight / 2);
-                    var rect = new Rect(x, baseline - barHeight, BarWidth, barHeight);
+                    double radius = Math.Min(barWidth / 2, barHeight / 2);
+                    var rect = new Rect(x, baseline - barHeight, barWidth, barHeight);
                     if (barHeight > radius * 2)
                     {
                         dc.DrawRoundedRectangle(brush, null,
@@ -114,16 +139,16 @@ namespace PeripheralBattery.UI
                         _dark ? (byte)0x40 : (byte)0x30, 0x80, 0x90, 0xA0));
                     empty.Freeze();
                     dc.DrawRectangle(empty, null,
-                        new Rect(x, baseline - 2, BarWidth, 2));
+                        new Rect(x, baseline - 2, barWidth, 2));
                 }
-                x += BarWidth + Gap;
+                x += barWidth + gap;
             }
 
             // ---- 底部时间刻度 ----
-            var left = MakeText("-24h", 9, textFaint);
+            var left = MakeText(_leftLabel, 9, textFaint);
             dc.DrawText(left, new Point(0, baseline + 3));
 
-            var right = MakeText("现在", 9, textFaint);
+            var right = MakeText(_rightLabel, 9, textFaint);
             dc.DrawText(right, new Point(width - right.Width, baseline + 3));
         }
 

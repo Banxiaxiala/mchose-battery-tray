@@ -66,9 +66,13 @@ echo  Using SDK host: %DOTNET%
 echo ============================================================
 echo  1/4  Stopping running instance
 echo ============================================================
-rem  Kill any running build output. The Chinese exe name cannot be written
-rem  literally in an ASCII .bat, so match by process path instead.
-powershell -NoProfile -Command "Get-Process | Where-Object { $_.Path -like '*mchose-battery-tray*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
+rem  Kill any running build output. The exe name is Chinese, which cannot be
+rem  written literally in an ASCII .bat, so match by process path instead.
+rem  (This used to look for '*mchose-battery-tray*' -- the OLD folder name.
+rem   After the repo was renamed the match never hit, so publish kept failing
+rem   with "file is being used by another process" whenever the tray was up.)
+powershell -NoProfile -Command "$out = Join-Path (Get-Location) 'dist'; Get-Process | Where-Object { $_.Path -and $_.Path -like ($out + '*') } | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
+powershell -NoProfile -Command "$me = (Get-Location).Path; Get-Process | Where-Object { $_.Path -and $_.Path -like ($me + '*') } | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
 timeout /t 2 /nobreak >nul
 
 echo.

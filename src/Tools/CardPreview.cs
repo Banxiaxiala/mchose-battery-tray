@@ -69,6 +69,20 @@ namespace PeripheralBattery.Tools
                 return points;
             }
 
+            // 柱状图数据：按 time range 分桶，与折线共用同一份历史。
+            // 柱状图也必须跟着时间选择变 —— 只给 24 小时的话，
+            // 用户选 30 天会发现柱状图毫无变化。
+            (int min, int max, int active) ProbeStats(List<Sample> source, int hours)
+            {
+                var folded = HistoryAnalysis.Fold(source, HistoryAnalysis.HourSpan);
+                return HistoryAnalysis.RangeStats(source, folded, folded, now, hours * 3600.0);
+            }
+
+            List<Bucket> BucketsOf(List<Sample> source, int hours)
+            {
+                return HistoryAnalysis.BuildBuckets(source, now, hours, null, -1);
+            }
+
             var devices = new List<CardDevice>
             {
                 new()
@@ -86,6 +100,10 @@ namespace PeripheralBattery.Tools
                     RangeFrom = f_mouseSamples,
                     RangeTo = t_mouseSamples,
                     FromUnix = ft_mouseSamples,
+                    Buckets = BucketsOf(mouseSamples, rangeHours),
+                    RangeMin = ProbeStats(mouseSamples, rangeHours).min,
+                    RangeMax = ProbeStats(mouseSamples, rangeHours).max,
+                    RangeActiveHours = ProbeStats(mouseSamples, rangeHours).active,
                     ToUnix = tt_mouseSamples,
                 },
                 new()
@@ -103,6 +121,10 @@ namespace PeripheralBattery.Tools
                     RangeFrom = f_headsetSamples,
                     RangeTo = t_headsetSamples,
                     FromUnix = ft_headsetSamples,
+                    Buckets = BucketsOf(headsetSamples, rangeHours),
+                    RangeMin = ProbeStats(headsetSamples, rangeHours).min,
+                    RangeMax = ProbeStats(headsetSamples, rangeHours).max,
+                    RangeActiveHours = ProbeStats(headsetSamples, rangeHours).active,
                     ToUnix = tt_headsetSamples,
                 },
                 new()
@@ -120,6 +142,10 @@ namespace PeripheralBattery.Tools
                     RangeFrom = f_keyboardSamples,
                     RangeTo = t_keyboardSamples,
                     FromUnix = ft_keyboardSamples,
+                    Buckets = BucketsOf(keyboardSamples, rangeHours),
+                    RangeMin = ProbeStats(keyboardSamples, rangeHours).min,
+                    RangeMax = ProbeStats(keyboardSamples, rangeHours).max,
+                    RangeActiveHours = ProbeStats(keyboardSamples, rangeHours).active,
                     ToUnix = tt_keyboardSamples,
                 },
             };

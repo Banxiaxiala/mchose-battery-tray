@@ -157,25 +157,34 @@ namespace PeripheralBattery.Tools
         /// </summary>
         public static void RunBar(string outputPath, bool light = false)
         {
-            // 布局要点：这张图会放在 README 的浅色背景上，
-            // 所以**固定用深色任务栏**（深色底在浅色页面上最醒目），
-            // 而不是跟随系统主题 —— 跟随浅色时深色文字会溶进页面背景里。
             const int width = 680;
             const int iconSize = 24;
             const int barHeight = 72;
             const int zoom = 5;              // 特写放大倍数
-            const int legendBand = 212;      // 特写区高度（6 倍特写 144 + 标题与留白）
+            const int legendBand = 212;      // 特写区高度（5 倍特写 120 + 标题与留白）
             const int height = barHeight + legendBand;
 
-            // 见上面注释：不用 light 参数决定底色，恒用深色。
-            // light 参数只影响特写区底板（浅色页面下用深灰，深色页面下用更深）。
-            // 仿 Win11 任务栏。真实的是「背景模糊 + 半透明深灰」，
-            // SVG 没有模糊滤镜，用中性灰 + 顶部 1px 高光近似 ——
-            // 目标是让人一眼认出「这是 Win11 任务栏」，不是复刻像素。
-            string barColor = "#2B2B2B";
-            string border = "#3D3D3D";
-            string text = "#FFFFFF";
-            string muted = "#C9C9C9";
+            // 颜色按主题走。Win11 的浅色主题任务栏是「白毛玻璃」：
+            // 近白半透明底 + 极淡的底部阴影感。SVG 没有模糊滤镜，
+            // 用两层近似：近白主体 + 顶部一条更亮的 1px 边。
+            //
+            // ⚠️ 之前这里被我写死成深色，理由是「深色在浅色页面更醒目」——
+            // 但那样就看不出浅色主题下长什么样了，而且白毛玻璃本身就是
+            // Win11 默认主题的观感。现在跟随 light 参数。
+            string barColor = light ? "#F5F5F5" : "#2B2B2B";
+            string border = light ? "#FFFFFF" : "#3D3D3D";
+            string text = light ? "#1A1A1A" : "#FFFFFF";
+            string muted = light ? "#5C5C5C" : "#C9C9C9";
+
+            // 特写区底板：与任务栏形成对比（深色页面用深灰，浅色页面用白）
+            string zoomBackdrop = light ? "#FFFFFF" : "#1F1F1F";
+            string zoomBorder = light ? "#E5E5E5" : "#3A3A3A";
+            // ⚠️ 图例文字画在**页面背景**上（不是底板里），而这张图无论
+            // 深色还是浅色任务栏，最终都放在 README 的浅色页面上。
+            // 所以图例文字必须始终用深色 —— 之前深色任务栏那版用了
+            // 浅色文字（#E6E6E6），结果在白底上完全看不见。
+            string zoomCaption = "#57606A";
+            string legendText = "#1F2328";
 
             var sb = new StringBuilder();
             sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
@@ -252,17 +261,17 @@ namespace PeripheralBattery.Tools
             double zoomY = barHeight + 56;
 
             sb.AppendLine($"<text x=\"{N(zoomX)}\" y=\"{N(barHeight + 30)}\" " +
-                "font-size=\"12\" fill=\"#57606A\">" +
+                $"font-size=\"12\" fill=\"{zoomCaption}\">" +
                 $"托盘图标 · 放大 {zoom} 倍</text>");
 
             // 特写底板：浅色圆角块，与深色任务栏形成对比
             sb.AppendLine($"<rect x=\"{N(zoomX - 12)}\" y=\"{N(zoomY - 12)}\" " +
                 $"width=\"{N(zoomSize + 24)}\" height=\"{N(zoomSize + 24)}\" rx=\"10\" " +
-                "fill=\"#1F1F1F\" stroke=\"#3A3A3A\"/>");
+                $"fill=\"{zoomBackdrop}\" stroke=\"{zoomBorder}\"/>");
 
             sb.AppendLine($"<g transform=\"translate({N(zoomX)},{N(zoomY)})\">");
-            // 特写在深色底板里，图标当然还是白线
-            AppendIcon(sb, rings, "#FFFFFF", (int)zoomSize);
+            // 特写图标的线条颜色要跟着底板：深底白线，白底深线
+            AppendIcon(sb, rings, light ? "#1A1A1A" : "#FFFFFF", (int)zoomSize);
             sb.AppendLine("</g>");
 
             // 图例：深色文字，画在页面背景上
@@ -272,11 +281,11 @@ namespace PeripheralBattery.Tools
             for (int i = 0; i < legendLines.Length; i++)
             {
                 sb.AppendLine($"<text x=\"{N(legendX)}\" y=\"{N(legendY + i * 24)}\" " +
-                    "font-size=\"13\" fill=\"#1F2328\">" +
+                    $"font-size=\"13\" fill=\"{legendText}\">" +
                     $"{Esc(legendLines[i])}</text>");
             }
             sb.AppendLine($"<text x=\"{N(legendX)}\" y=\"{N(legendY + legendLines.Length * 24 + 10)}\" " +
-                "font-size=\"12\" fill=\"#57606A\">" +
+                $"font-size=\"12\" fill=\"{zoomCaption}\">" +
                 "弧长 = 电量百分比 · 充电时整圈点亮</text>");
 
             sb.AppendLine("</svg>");

@@ -145,12 +145,21 @@ namespace PeripheralBattery
             // --tray：把托盘图标输出成矢量 SVG（README 用，也用于视觉调试）
             //   --tray <输出路径.svg> [--light]
             // 图标本身是纯几何（圆 + 圆弧），做成矢量后放大到任何尺寸都清晰。
-            if (args.Length > 0 && args[0] == "--tray")
+            //   --tray <输出.svg> [--light]   状态对比图（每格带说明）
+            //   --traybar <输出.svg> [--light] 任务栏实景图（README 首图用）
+            if (args.Length > 0 && (args[0] == "--tray" || args[0] == "--traybar"))
             {
                 AttachConsole(-1);
-                string output = args.Length > 1 ? args[1] : "tray.png";
+                string output = args.Length > 1 ? args[1] : "tray.svg";
                 bool lightTray = Array.IndexOf(args, "--light") >= 0;
-                Tools.TrayVectorPreview.Run(output, lightTray);
+                if (args[0] == "--traybar")
+                {
+                    Tools.TrayVectorPreview.RunBar(output, lightTray);
+                }
+                else
+                {
+                    Tools.TrayVectorPreview.Run(output, lightTray);
+                }
                 Console.WriteLine("已保存：" + output);
                 return;
             }

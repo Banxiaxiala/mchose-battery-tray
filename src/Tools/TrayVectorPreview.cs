@@ -134,6 +134,117 @@ namespace PeripheralBattery.Tools
         }
 
         /// <summary>
+        /// 生成「任务栏实景」图：一行模拟任务栏，托盘图标排在右端。
+        ///
+        /// 与状态对比图的分工：
+        ///   对比图（Run）     —— 讲清每种状态长什么样，每格带说明文字
+        ///   任务栏图（RunBar）—— 只展示真实观感，用来当 README 首图
+        ///
+        /// 首图必须「一眼看出这是什么」，所以画成任务栏而不是九宫格说明图。
+        /// 圆角、系统图标位、时钟都能帮助读者立刻认出这是托盘区域。
+        /// </summary>
+        public static void RunBar(string outputPath, bool light = false)
+        {
+            const int height = 268;
+            const int width = 720;
+            const int iconSize = 24;
+            const int barHeight = 96;
+            const int zoom = 5;  // 特写放大倍数
+
+            string barColor = light ? "#F3F3F3" : "#202020";
+            string border = light ? "#D8D8D8" : "#2E2E2E";
+            string text = light ? "#1A1A1A" : "#FFFFFF";
+            string muted = light ? "#3C3C3C" : "#C8C8C8";
+
+            var sb = new StringBuilder();
+            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            sb.AppendLine($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" " +
+                $"height=\"{height}\" viewBox=\"0 0 {width} {height}\" " +
+                "font-family=\"'Segoe UI','Microsoft YaHei UI',sans-serif\">");
+
+            // 任务栏底板 + 上边框（只占上半部分，下半留给特写）
+            sb.AppendLine($"<rect width=\"{width}\" height=\"{barHeight}\" fill=\"{barColor}\"/>");
+            sb.AppendLine($"<rect x=\"0\" y=\"0\" width=\"{width}\" height=\"1\" fill=\"{border}\"/>");
+
+            // 左端：开始按钮（四个小方块，Windows 徽标示意）
+            double bx = 16, by = barHeight / 2.0 - 8;
+            for (int i = 0; i < 2; i++)
+            {
+                for (int j = 0; j < 2; j++)
+                {
+                    sb.AppendLine($"<rect x=\"{N(bx + i * 9)}\" y=\"{N(by + j * 9)}\" " +
+                        "width=\"7\" height=\"7\" rx=\"1\" " +
+                        $"fill=\"{(light ? "#0067C0" : "#60CDFF")}\"/>");
+                }
+            }
+
+            // 右端：系统图标位（网络 / 音量 / 电池的抽象形状，不画细节）
+            double rightEdge = width - 16;
+
+            // 时钟
+            sb.AppendLine($"<text x=\"{N(rightEdge) }\" y=\"{N(barHeight / 2.0 + 4)}\" " +
+                $"font-size=\"11\" fill=\"{text}\" text-anchor=\"end\">14:20</text>");
+            sb.AppendLine($"<text x=\"{N(rightEdge) }\" y=\"{N(barHeight / 2.0 + 18)}\" " +
+                $"font-size=\"10\" fill=\"{muted}\" text-anchor=\"end\">2026/11/13</text>");
+
+            // 本程序的托盘图标（三个三环，代表三台设备都在）
+            var rings = new[]
+            {
+                Make(82), Make(51), Make(24),
+            };
+            double iconX = rightEdge - 96;
+            sb.AppendLine($"<g transform=\"translate({N(iconX)},{N(barHeight / 2.0 - iconSize / 2.0)})\">");
+            AppendIcon(sb, rings, text, iconSize);
+            sb.AppendLine("</g>");
+
+            // 展开箭头（系统托盘里的「^」）
+            sb.AppendLine($"<path d=\"M {N(iconX + 40)} {N(barHeight / 2.0 - 2)} " +
+                $"l 4 4 l 4 -4\" fill=\"none\" stroke=\"{muted}\" " +
+                "stroke-width=\"1.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>");
+
+            // ---- 下半：放大特写 ----
+            // 24px 的图标在整条任务栏里只有很小一块，首图必须给个特写，
+            // 否则读者根本看不出「三圈」这回事。
+            double zoomSize = iconSize * zoom;
+            double zoomX = 40;
+            double zoomY = barHeight + 40;
+
+            sb.AppendLine($"<text x=\"{N(zoomX)}\" y=\"{N(barHeight + 26)}\" " +
+                $"font-size=\"11\" fill=\"{(light ? "#6A6A6A" : "#9A9A9A")}\">" +
+                $"↑ 托盘图标 · 放大 {zoom} 倍</text>");
+
+            // 特写底板（浅色主题下用白底，深色用稍亮的深灰）
+            sb.AppendLine($"<rect x=\"{N(zoomX - 12)}\" y=\"{N(zoomY - 12)}\" " +
+                $"width=\"{N(zoomSize + 24)}\" height=\"{N(zoomSize + 24)}\" rx=\"10\" " +
+                $"fill=\"{(light ? "#FFFFFF" : "#181818")}\" " +
+                $"stroke=\"{(light ? "#E2E2E2" : "#303030")}\"/>");
+
+            sb.AppendLine($"<g transform=\"translate({N(zoomX)},{N(zoomY)})\">");
+            AppendIcon(sb, rings, text, (int)zoomSize);
+            sb.AppendLine("</g>");
+
+            // 特写右侧：三圈分别代表什么
+            double legendX = zoomX + zoomSize + 28;
+            double legendY = zoomY + 22;
+            string[] legendLines = { "外环  鼠标", "中环  耳机", "内环  键盘" };
+            for (int i = 0; i < legendLines.Length; i++)
+            {
+                sb.AppendLine($"<text x=\"{N(legendX)}\" y=\"{N(legendY + i * 22)}\" " +
+                    $"font-size=\"12\" fill=\"{(light ? "#1A1A1A" : "#E6E6E6")}\">" +
+                    $"{Esc(legendLines[i])}</text>");
+            }
+            sb.AppendLine($"<text x=\"{N(legendX)}\" y=\"{N(legendY + legendLines.Length * 22 + 8)}\" " +
+                $"font-size=\"11\" fill=\"{(light ? "#7A7A7A" : "#9A9A9A")}\">" +
+                "弧长 = 电量百分比 · 充电时整圈点亮</text>");
+
+            sb.AppendLine("</svg>");
+
+            string dir = Path.GetDirectoryName(outputPath) ?? ".";
+            if (dir.Length > 0) Directory.CreateDirectory(dir);
+            File.WriteAllText(outputPath, sb.ToString(), new UTF8Encoding(false));
+        }
+
+        /// <summary>
         /// 画一个多环图标。几何参数全部来自 TrayIconArt.Default，
         /// 与真实托盘图标共用同一份定义。
         /// </summary>

@@ -5,7 +5,7 @@
 > 只占**一个**托盘图标（三圈同心环），**左键单击**弹出亚克力卡片看
 > 24 小时历史与续航预测。
 >
-> C# + WPF 实现，单文件 exe 约 **457 KB**，零第三方运行时依赖。
+> C# + WPF 实现，单文件 exe 约 **460 KB**，零第三方运行时依赖。
 > 采用 GPL-3.0（派生自 FerrisPulse / logi-tray，见根目录致谢）。
 >
 > 旧名「2.4G 设备电量」（v3）。改名只影响 exe 名与数据目录，
@@ -428,6 +428,7 @@ dist/                     构建产物（git 忽略）
 | `HANDOVER.md` | **交接文档**：装环境、改代码、排查手册、已知限制 |
 | `assets/architecture.svg` | 五层架构图（`tools/draw_diagrams.py` 生成） |
 | `assets/tray-states.svg` | 托盘图标各状态（`--tray` 生成，矢量） |
+| `assets/tray-taskbar.svg` | 任务栏实景 + 放大特写（`--traybar` 生成，README 首图） |
 | `assets/fallback-chain.svg` | 读取降级链示意 |
 | `assets/dataflow.svg` | 一次刷新的数据流 |
 | `assets/storage-layers.svg` | 历史三层聚合示意 |

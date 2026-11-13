@@ -147,6 +147,81 @@ namespace PeripheralBattery.Tests
             Assert.NotNull(Protocols.RazerModelName("", 0x025C), "键盘在表里");
         }
 
+        // ============================================================ 首次探测
+        //
+        // 首次启动（没有 settings.json）要自动探出「实际连着哪些设备」，
+        // 否则内置的 11 个未验证型号默认关闭，用户接了也看不到。
+        // 探测只做一次，结论写进设置。
+
+        [Test]
+        public static void AutoProbeDefaultsToNotDone()
+        {
+            Assert.False(new Settings().AutoProbeDone,
+                "新配置默认「还没探过」，首次启动必须探一次");
+        }
+
+        [Test]
+        public static void AutoProbeFlagSurvivesRoundTrip()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + System.Guid.NewGuid().ToString("N"));
+            try
+            {
+                var settings = new Settings { AutoProbeDone = true };
+                settings.SetDeviceEnabled("razer", false);
+                settings.SaveTo(dir);
+
+                var reloaded = Settings.LoadFrom(dir);
+                Assert.True(reloaded.AutoProbeDone, "探过标记要落盘");
+                Assert.False(reloaded.IsDeviceEnabled("razer"), "关闭状态一并保留");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(dir, true); } catch (System.Exception) { }
+            }
+        }
+
+        [Test]
+        public static void ProbeResultCanDisableManyDevices()
+        {
+            // 首次探测的写入方式：把没探到的一次性全关掉。
+            // 这里验证「全关再全开」的往返不会丢条目。
+            var settings = new Settings();
+            var all = new[] { "logitech", "razer", "max102", "atk-v75x", "nuphy" };
+
+            foreach (var key in all) settings.SetDeviceEnabled(key, false);
+            foreach (var key in all)
+            {
+                Assert.False(settings.IsDeviceEnabled(key), "应全部关闭：" + key);
+            }
+            Assert.Equal(5, settings.DisabledDevices.Count, "禁用列表条数");
+
+            // 只开回探到的那几台
+            foreach (var key in new[] { "logitech", "razer", "max102" })
+            {
+                settings.SetDeviceEnabled(key, true);
+            }
+            Assert.True(settings.IsDeviceEnabled("logitech"), "探到的应启用");
+            Assert.False(settings.IsDeviceEnabled("atk-v75x"), "没探到的仍关闭");
+            Assert.Equal(2, settings.DisabledDevices.Count, "只剩没探到的两台");
+        }
+
+        [Test]
+        public static void BuiltInDevicesNotProbedAreOptIn()
+        {
+            // 内置表里「移植实现、未验证」的设备必须 EnabledByDefault=false，
+            // 否则用户第一次打开会看到一堆永远读不到的空环。
+            int optIn = 0;
+            int total = 0;
+            foreach (var device in Hardware.DeviceCatalog.BuiltIn)
+            {
+                total++;
+                if (!device.EnabledByDefault) optIn++;
+            }
+            Assert.True(optIn > 0, "至少有一台是「默认关闭」的移植型号");
+            Assert.True(total > optIn, "也必须有默认启用的（否则新用户什么都看不到）");
+        }
+
         // ============================================================ 卡片容量上限
         //
         // 设备一多，卡片高度会超过屏幕工作区（实测 14 台约 2900 DIP）。

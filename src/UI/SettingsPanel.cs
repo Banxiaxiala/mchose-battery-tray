@@ -357,29 +357,36 @@ namespace PeripheralBattery.UI
 
                 _root.Children.Add(limitRow);
 
-                var deviceHint = MakeText(
-                    "关闭后完全不探测、不占托盘环、不记历史",
-                    9, Faint());
-                deviceHint.TextWrapping = TextWrapping.Wrap;
-                deviceHint.Margin = new Thickness(0, 2, 0, 4);
-                _root.Children.Add(deviceHint);
-
-                foreach (var (key, label) in _devices)
+                // 设备清单移到二级面板：主设置页只留一个入口。
+                //
+                // 为什么分出去：设备可能十几台，把复选框全铺在主页面会让
+                // 设置面板长到几百像素，挤掉真正常用的项（间隔、配色、开关）。
+                // 主页面只显示「已启用 N / 共 M 台」，点开才看细节。
+                int enabledCount = 0;
+                foreach (var (key, _) in _devices)
                 {
-                    var box = MakeCheckBox(label, _settings.IsDeviceEnabled(key), "");
-                    string capturedKey = key;
-                    box.Checked += (_, _) =>
-                    {
-                        if (_suppressEvents) return;
-                        ToggleDevice(capturedKey, true);
-                    };
-                    box.Unchecked += (_, _) =>
-                    {
-                        if (_suppressEvents) return;
-                        ToggleDevice(capturedKey, false);
-                    };
-                    _root.Children.Add(box);
+                    if (_settings.IsDeviceEnabled(key)) enabledCount++;
                 }
+
+                var manageButton = new Button
+                {
+                    Content = "管理设备（已启用 " + enabledCount + " / "
+                        + _devices.Count + " 台）",
+                    FontSize = 10.5,
+                    Height = 26,
+                    Padding = new Thickness(12, 0, 12, 0),
+                    Cursor = Cursors.Hand,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 4, 0, 8),
+                    Background = Brushes.Transparent,
+                    Foreground = Secondary(),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = Palette.BrushOf(Theme.IsDark
+                        ? Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)
+                        : Color.FromArgb(0x24, 0x00, 0x00, 0x00)),
+                };
+                manageButton.Click += (_, _) => OpenDeviceManager();
+                _root.Children.Add(manageButton);
 
                 _root.Children.Add(Divider());
             }
@@ -800,6 +807,169 @@ namespace PeripheralBattery.UI
             root.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
             root.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
             return new ControlTemplate(typeof(Button)) { VisualTree = root };
+        }
+
+        /// <summary>二级面板：设备清单</summary>
+        private Window? _deviceWindow;
+
+        /// <summary>
+        /// 打开「管理设备」二级面板。
+        ///
+        /// 用独立窗口而不是内嵌折叠面板：设备多时折叠面板会把设置页
+        /// 撑得很长，而主面板的 StackPanel 不在 ScrollViewer 里。
+        /// 独立窗口可以自己滚动，关掉也不影响主面板状态。
+        /// </summary>
+        private void OpenDeviceManager()
+        {
+            if (_deviceWindow != null)
+            {
+                _deviceWindow.Activate();
+                return;
+            }
+
+            var window = new Window
+            {
+                WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.NoResize,
+                AllowsTransparency = false,
+                Background = Brushes.Transparent,
+                ShowInTaskbar = false,
+                Topmost = true,
+                SizeToContent = SizeToContent.Height,
+                Width = PanelWidth,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                UseLayoutRounding = true,
+                SnapsToDevicePixels = true,
+                FontFamily = new FontFamily("Microsoft YaHei UI"),
+            };
+
+            WindowChrome.SetWindowChrome(window, new WindowChrome
+            {
+                CaptionHeight = 0,
+                CornerRadius = new CornerRadius(PanelRadius),
+                GlassFrameThickness = new Thickness(-1),
+                ResizeBorderThickness = new Thickness(0),
+            });
+
+            var root = new StackPanel { Margin = new Thickness(14, 11, 14, 13) };
+
+            var bar = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            bar.ColumnDefinitions.Add(new ColumnDefinition
+            { Width = new GridLength(1, GridUnitType.Star) });
+            bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var title = MakeText("管理设备", 12.5, Primary(), FontWeights.SemiBold);
+            Grid.SetColumn(title, 0);
+            bar.Children.Add(title);
+
+            var close = new Button
+            {
+                Content = "×",
+                Width = 22,
+                Height = 22,
+                FontSize = 14,
+                Cursor = Cursors.Hand,
+                Background = Brushes.Transparent,
+                Foreground = Secondary(),
+                BorderThickness = new Thickness(0),
+            };
+            close.Click += (_, _) => window.Close();
+            Grid.SetColumn(close, 1);
+            bar.Children.Add(close);
+            root.Children.Add(bar);
+
+            var hint = MakeText(
+                "只有勾选的设备会被探测。取消勾选 = 完全不读、不占托盘环、不记历史。",
+                9, Faint());
+            hint.TextWrapping = TextWrapping.Wrap;
+            hint.Margin = new Thickness(0, 0, 0, 8);
+            root.Children.Add(hint);
+
+            var list = new StackPanel();
+            foreach (var (key, label) in _devices)
+            {
+                var box = MakeCheckBox(label, _settings.IsDeviceEnabled(key), "");
+                string capturedKey = key;
+                box.Checked += (_, _) =>
+                {
+                    if (_suppressEvents) return;
+                    ToggleDevice(capturedKey, true);
+                };
+                box.Unchecked += (_, _) =>
+                {
+                    if (_suppressEvents) return;
+                    ToggleDevice(capturedKey, false);
+                };
+                list.Children.Add(box);
+            }
+
+            var scroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                MaxHeight = 420,
+                Content = list,
+            };
+            root.Children.Add(scroll);
+
+            var border = new Border
+            {
+                CornerRadius = new CornerRadius(PanelRadius),
+                BorderThickness = new Thickness(1),
+                BorderBrush = Palette.BrushOf(Theme.IsDark
+                    ? Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF)
+                    : Color.FromArgb(0x1A, 0x00, 0x00, 0x00)),
+                Background = Palette.BrushOf(Theme.IsDark
+                    ? Palette.SurfaceDark : Palette.SurfaceLight),
+                Width = PanelWidth,
+                Child = root,
+            };
+            window.Content = border;
+
+            window.SourceInitialized += (_, _) =>
+            {
+                if (!Acrylic.Apply(window, Theme.IsDark, PanelRadius))
+                {
+                    Acrylic.Clear(window);
+                }
+            };
+
+            // 贴在主面板右侧；放不下就贴左侧，并夹进工作区
+            window.ContentRendered += (_, _) =>
+            {
+                var work = SystemParameters.WorkArea;
+                double x = Left + ActualWidth + 10;
+                if (x + window.ActualWidth > work.Right - 8)
+                {
+                    x = Left - window.ActualWidth - 10;
+                }
+                double y = Top;
+                x = ScreenClamp.Into(x, work.Left + 8,
+                    work.Right - window.ActualWidth - 8, work.Left);
+                y = ScreenClamp.Into(y, work.Top + 8,
+                    work.Bottom - window.ActualHeight - 8, work.Top);
+                window.Left = x;
+                window.Top = y;
+            };
+
+            window.Closed += (_, _) =>
+            {
+                _deviceWindow = null;
+                // 主面板上的「已启用 N 台」要跟着更新，否则显示过期数字
+                _onDevicesChanged?.Invoke();
+            };
+
+            _deviceWindow = window;
+            window.Show();
+        }
+
+        /// <summary>设备开关变化后的回调（由 Program 注入，用于刷新主面板计数）</summary>
+        private Action? _onDevicesChanged;
+
+        /// <summary>供 Program 注册「设备变化后刷新主面板」</summary>
+        public void SetDevicesChangedHandler(Action handler)
+        {
+            _onDevicesChanged = handler;
         }
 
         /// <summary>贴到卡片左侧；放不下就贴右侧</summary>

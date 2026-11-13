@@ -201,6 +201,14 @@ namespace PeripheralBattery
             Application.SetCompatibleTextRenderingDefault(false);
 
             _devices = BuildDevices();
+
+            // 首次启动（或用户删了 settings.json）时，自动探一遍
+            // 「实际连着哪些设备」，只启用读得到的。
+            // 之后以设置里的开关为准，不再覆盖用户的决定。
+            if (!_settings.AutoProbeDone)
+            {
+                RunFirstRunProbe();
+            }
             SyncEnabledFromSettings();
 
             _tray = new TrayIcon();
@@ -244,6 +252,11 @@ namespace PeripheralBattery
                 RefreshNow();          // 立刻重画环 / 卡片 / 提示
                 if (_card.IsVisible) _card.Reposition();
             };
+            // 二级面板改完设备开关后，主面板的「已启用 N 台」要同步
+            panel.SetDevicesChangedHandler(() =>
+            {
+                if (_card.IsVisible) RefreshCardData();
+            });
             _settingsPanel = panel;
 
             _tray.Clicked += ToggleCard;
@@ -458,6 +471,98 @@ namespace PeripheralBattery
             if (_tray != null && _devices != null)
             {
                 _tray.SetReadings(BuildRings());
+            }
+        }
+
+        /// <summary>
+        /// 首次启动探测：把「当前实际连着」的设备标记为启用。
+        ///
+        /// 为什么必须做：内置表里有 11 个「移植实现、未验证」的型号，
+        /// 它们默认关闭（不能占用托盘环）。但如果用户恰好有其中一台，
+        /// 第一次打开时什么都不显示，他会认为「这工具不支持我的设备」。
+        ///
+        /// 判定标准是**能读出电量**，而不是「枚举到接口」：
+        /// 枚举到但读不到，说明设备在但协议不对，显示出来只会是个
+        /// 永远 0% 的空环，比不显示更糟。
+        ///
+        /// 探测只做一次，结论写进设置。代价是首次启动慢几秒
+        /// （每个未接设备都要等超时），之后启动是毫秒级。
+        /// </summary>
+        private static void RunFirstRunProbe()
+        {
+            try
+            {
+                Core.Tracer.Line("首次启动：正在探测实际连接的设备…");
+
+                // 并行探测：每台未接设备都要等超时（约 0.4s，有的还两遍），
+                // 串行 14 台能拖十几秒。并行后总耗时 ≈ 最慢的那台。
+                //
+                // 安全性：每个 slot 只被一个任务读写，slot 之间没有共享状态；
+                // Reading 是每台独立的返回值。HID 枚举本身在 SetupAPI 里
+                // 是线程安全的（每次调用各自开句柄）。
+                var found = new List<string>();
+                var results = new (string key, Reading? reading)[_devices.Count];
+                System.Threading.Tasks.Parallel.For(0, _devices.Count, i =>
+                {
+                    var slot = _devices[i];
+                    Reading? reading = null;
+                    try
+                    {
+                        // 读得到 = 设备在、协议对、能出数。
+                        // 只「枚举到接口」不算 —— 那可能是个永远 0% 的空环。
+                        (reading, _) = slot.Read();
+                    }
+                    catch (Exception)
+                    {
+                        reading = null;
+                    }
+                    results[i] = (slot.HistoryKey, reading);
+                });
+
+                foreach (var (key, reading) in results)
+                {
+                    if (reading == null || !reading.Percent.HasValue) continue;
+                    found.Add(key);
+                    // 回填到 slot，让首帧就有数（不然第一次刷新前是空的）
+                    foreach (var slot in _devices)
+                    {
+                        if (string.Equals(slot.HistoryKey, key,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            slot.Latest = reading;
+                            break;
+                        }
+                    }
+                }
+
+                // 只启用探到的；其余全部关掉（包括原本 EnabledByDefault 的）。
+                // 这样用户第一次打开时，看到的正好是他机器上真实存在的设备。
+                _settings.DisabledDevices = _devices
+                    .Select(d => d.HistoryKey)
+                    .Where(key => !found.Contains(key, StringComparer.OrdinalIgnoreCase))
+                    .ToList();
+
+                // 一台都没探到：不要全关，否则界面空着更容易被当成坏了。
+                // 保留内置默认启用的那几台（让用户至少看到「读不到」的原因）。
+                if (found.Count == 0)
+                {
+                    _settings.DisabledDevices = new List<string>();
+                    Core.Tracer.Line("首次探测什么都没读到，保留默认设备（会在界面上报原因）");
+                }
+                else
+                {
+                    Core.Tracer.Line("首次探测到：" + string.Join("、", found));
+                }
+
+                _settings.AutoProbeDone = true;
+                _settings.Save();
+            }
+            catch (Exception exc)
+            {
+                // 探测失败不能挡住启动：退回默认启用集合
+                Core.Tracer.Line("首次探测失败：" + exc.Message);
+                _settings.AutoProbeDone = true;
+                try { _settings.Save(); } catch (Exception) { }
             }
         }
 

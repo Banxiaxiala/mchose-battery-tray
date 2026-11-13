@@ -118,6 +118,20 @@ namespace PeripheralBattery.Services
         [JsonPropertyName("disabled_devices")]
         public List<string> DisabledDevices { get; set; } = new();
 
+        /// <summary>
+        /// 是否已经做过「首次启动自动探测」。
+        ///
+        /// 为什么需要这个标记：首次启动时要把「实际连着哪些设备」探出来
+        /// （否则内置的 11 个未验证型号全都默认关闭，用户接了也看不到）。
+        /// 但探测本身要挨个枚举、每个未接的设备都要等超时，
+        /// 14 台能拖十几秒 —— 不能每轮都做。
+        ///
+        /// 所以只做一次：探完把结果写进 disabled_devices，然后置 true。
+        /// 之后完全以那次的结论为准，用户在设置里改了也不会被覆盖。
+        /// </summary>
+        [JsonPropertyName("auto_probe_done")]
+        public bool AutoProbeDone { get; set; }
+
         /// <summary>某台设备是否被用户关闭了监控</summary>
         public bool IsDeviceEnabled(string historyKey)
         {

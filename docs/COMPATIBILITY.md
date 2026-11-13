@@ -71,8 +71,15 @@
 | Atheris | `1532:0062` | 🟡 | |
 | Pro Click / Mini / V2 / V2 Vertical | `1532:0077` / `009A` / `00D0` / `00C7` | 🟡 | |
 | HyperPolling Wireless Dongle | `1532:00B3` | 🟡 | 8K 接收器；会转发设备的电量 |
+| BlackWidow V3 Pro / Mini | `1532:025A` / `025C` / `0258` | 🟡 | 无线键盘 |
+| BlackWidow V4 Mini / TKL | `1532:02B9` / `02D7` | 🟡 | 无线键盘 |
+| DeathStalker V2 Pro / TKL | `1532:0292` / `0298` | 🟡 | 无线键盘 |
+| Joro | `1532:02CD` | 🟡 | 无线键盘 |
+| Kraken 7.1 / Chroma / V2 | `1532:0501` / `0504` / `0510` | 🟡 | 老款雷蛇耳机 |
+| Kraken TE / Ultimate | `1532:0520` / `0527` | 🟡 | 雷蛇耳机 |
+| Kraken Kitty / Kitty V2 | `1532:0F19` / `0560` | 🟡 | 猫耳耳机 |
 
-共 45 个 PID 已入型号表（`Protocols.RazerModelNames`），
+共 60 个 PID 已入型号表（`Protocols.RazerModelNames`），覆盖鼠标 / 键盘 / 耳机三类，
 来源是 [OpenRazer](https://github.com/openrazer/openrazer) 的
 `daemon/openrazer_daemon/hardware/{mouse,headsets}.py` ——
 它维护的雷蛇 PID 清单是目前公开最全的。

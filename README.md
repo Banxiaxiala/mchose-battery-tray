@@ -9,7 +9,7 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
 [![Size](https://img.shields.io/badge/single%20exe-425%20KB-blue?style=flat-square)](#性能)
-[![Tests](https://img.shields.io/badge/tests-152%20passed-success?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/tests-154%20passed-success?style=flat-square)](#测试)
 
 <img src="assets/screens/line-24h.png" width="300" alt="外设电量卡片 —— 折线图视图">
 
@@ -249,7 +249,7 @@ Program  →  UI  →  Services  →  Hardware  →  Core  →  Models
 </details>
 
 <details>
-<summary><b>雷蛇</b> —— 走 PA/PI 64 字节中断报文（45 个 PID 已入表）</summary>
+<summary><b>雷蛇</b> —— 走 PA/PI 64 字节中断报文（60 个 PID 已入表）</summary>
 
 耳机：Kraken V4 `056C`、Kraken 7.1 系列 `0501/0504/0506/0510/0520/0527`、
 Kraken Kitty `0F19/0560`
@@ -447,7 +447,7 @@ dotnet run --project src\PeripheralBattery.csproj -- --preview card.png line 168
 dotnet run --project tests\PeripheralBattery.Tests.csproj
 ```
 
-**152 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
+**154 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
 `tests/Harness.cs` 里 60 行手写运行器就够，`Main` 返回非 0 表示失败。
 
 覆盖面：
@@ -526,15 +526,41 @@ py -3.13 tools\draw_diagrams.py --png    rem 同时出 PNG（本地预览用）
 
 ## 致谢
 
-- [yixing233/logi-tray](https://github.com/yixing233/logi-tray) —— 罗技 HID++ 2.0
-  两遍槽位探测、短集合错误帧判定、亚克力卡片视觉规格
-- [Ferris-echo/FerrisPulse](https://github.com/Ferris-echo/FerrisPulse) ——
-  雷蛇 64 字节 PA/PI 报文格式，以及本项目的工程规范
-- [Banxiaxiala/weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re) ——
-  **本项目作者自己的**维咖 MAX102 固件逆向仓库：电量通路反汇编图、
-  `cmd 20` 电量补丁的字节布局与实测帧、可直接刷入的补丁固件
+这个项目的协议实现几乎全部站在别人肩上。下面按「我们具体用了什么」列，
+并标明各自许可证 —— 因为本项目是 GPL-3.0 派生作品，这些归属是**法律要求**
+而不只是礼貌。
+
+### 代码移植（GPL-3.0 派生来源）
+
+| 项目 | 许可证 | 我们用了什么 |
+|---|---|---|
+| [FerrisPulse](https://github.com/Ferris-echo/FerrisPulse) | GPL-3.0 | **协议代码的主要来源**：<br>· 雷蛇 64 字节 PA/PI 报文格式<br>· ATK 私有协议（`0xFF1C/0x92`）<br>· 飞智 GPA6 私有帧（`0xFFA0`）<br>· 漫步者 EC 帧（XOR `0xA5` + 累加和）<br>· 高斯 GS3108T-PRO 的 VIA 布局 B<br>· 各家 PID 与实测型号清单 |
+| [logi-tray](https://github.com/yixing233/logi-tray) | GPL-3.0 | 罗技 HID++ 2.0 的两遍槽位探测、短集合错误帧判定、<br>24 小时分桶与续航预测算法、亚克力卡片视觉规格 |
+
+### 数据与参考（未复制代码）
+
+| 项目 | 许可证 | 我们用了什么 |
+|---|---|---|
+| [OpenRazer](https://github.com/openrazer/openrazer) | GPL-2.0 | 雷蛇 PID 清单（`daemon/openrazer_daemon/hardware/`）。<br>**只取了 VID/PID 与型号名这类事实性数据**，没有复制实现代码 |
+| [weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re) | 见仓库 | **本项目作者自己的**维咖 MAX102 固件逆向：电量通路反汇编图、<br>`cmd 20` 补丁的字节布局与实测帧、可直接刷入的补丁固件 |
+
+> 从 OpenRazer 取的是「某 PID 对应某型号」这种事实，不构成对其代码的派生；
+> 但从 FerrisPulse / logi-tray 取的是**实现**，所以我们沿用 GPL-3.0。
+
+### 一个必须说清的限制
+
+移植的协议（ATK / 飞智 / 漫步者 / 高斯）**没有在本仓库对应的真机上验证过**。
+上游项目对各自型号做过抓包，我们照搬了帧格式并补了断言，
+但「上游验证过」不等于「这里也能用」。这些设备默认关闭，
+详见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
 
 ## 授权
 
-与罗技、雷蛇、维咖官方无关，不保证适配其他型号或固件版本。
-协议细节均来自公开资料与真机抓包。
+本项目采用 **GNU General Public License v3.0**，全文见 [LICENSE](LICENSE)。
+
+之所以是 GPL-3.0 而不是 MIT：`src/Hardware/VendorProtocols.cs` 与
+VIA / HID++ 的读取逻辑移植自 GPL-3.0 项目（见上方致谢），
+派生作品必须沿用同一许可证。这不是偏好问题。
+
+与罗技、雷蛇、维咖、ATK、飞智、漫步者等厂商官方无关，
+不保证适配其他型号或固件版本。

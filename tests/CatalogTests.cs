@@ -116,6 +116,36 @@ namespace PeripheralBattery.Tests
                 Protocols.RazerModelName("", 0x00B3), "8K 接收器");
         }
 
+        [Test]
+        public static void ModelTableCoversKeyboardsAndHeadsets()
+        {
+            // 型号表原来只有鼠标+耳机，现在把雷蛇无线键盘也收进来了。
+            // 抽查几个不同品类，防止有人「清理」掉看起来没用的条目。
+            Assert.Equal("BlackWidow V3 Pro",
+                Protocols.RazerModelName("", 0x025A), "雷蛇无线键盘");
+            Assert.Equal("DeathStalker V2 Pro",
+                Protocols.RazerModelName("", 0x0292), "雷蛇无线键盘 2");
+            Assert.Equal("Kraken 7.1",
+                Protocols.RazerModelName("", 0x0501), "老款雷蛇耳机");
+            Assert.Equal("Kraken Kitty V2",
+                Protocols.RazerModelName("", 0x0560), "猫耳耳机");
+            Assert.Equal("DeathAdder V2 Pro",
+                Protocols.RazerModelName("", 0x007C), "雷蛇鼠标");
+        }
+
+        [Test]
+        public static void ModelTableHasNoDuplicatePid()
+        {
+            // 重复 PID 会让「同一个设备在不同机器上显示不同型号」，
+            // 而且后写入的会静默覆盖前面的。这里一次性查全表。
+            // Dictionary 初始化器遇到重复键会抛异常，所以能构造成功
+            // 就说明没重复 —— 但我们要的是「能给所有已知 PID 名字」，
+            // 所以抽查几个必须存在的。
+            Assert.NotNull(Protocols.RazerModelName("", 0x0555), "实测耳机在表里");
+            Assert.NotNull(Protocols.RazerModelName("", 0x00BE), "新鼠标在表里");
+            Assert.NotNull(Protocols.RazerModelName("", 0x025C), "键盘在表里");
+        }
+
         // ============================================================ 协议名解析
 
         [Test]

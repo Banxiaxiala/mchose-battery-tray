@@ -158,6 +158,26 @@ namespace PeripheralBattery.Hardware
             [0x00EF] = "DeathAdder V4 Pro Carbon",
             [0x00E5] = "Viper V4 Pro",
             [0x056C] = "Kraken V4",                 // 耳机
+
+            // ---- 雷蛇无线键盘（PA/PI 同族，来源 OpenRazer keyboards.py）----
+            [0x025A] = "BlackWidow V3 Pro",
+            [0x025C] = "BlackWidow V3 Pro (2.4G)",
+            [0x0258] = "BlackWidow V3 Mini HyperSpeed",
+            [0x02B9] = "BlackWidow V4 Mini HyperSpeed",
+            [0x02D7] = "BlackWidow V4 TKL HyperSpeed",
+            [0x02CD] = "Joro",
+            [0x0292] = "DeathStalker V2 Pro",
+            [0x0298] = "DeathStalker V2 Pro TKL",
+
+            // ---- 雷蛇耳机补充（Kraken 7.1 / Kitty 系列）----
+            [0x0501] = "Kraken 7.1",
+            [0x0504] = "Kraken 7.1 Chroma",
+            [0x0506] = "Kraken 7.1 (Alt)",
+            [0x0510] = "Kraken 7.1 V2",
+            [0x0520] = "Kraken Tournament Edition",
+            [0x0527] = "Kraken Ultimate",
+            [0x0F19] = "Kraken Kitty Edition",
+            [0x0560] = "Kraken Kitty V2",
         };
 
         // ============================================================ 维咖 VIA

@@ -65,7 +65,7 @@ def main():
         "README.md",
         "docs/README.md", "docs/ARCHITECTURE.md", "docs/AGENTS.md",
         "docs/HANDOVER.md", "docs/COMPATIBILITY.md",
-        "build.bat", ".gitignore",
+        "build.bat", ".gitignore", "LICENSE",
         "src/PeripheralBattery.csproj",
         "src/Program.cs",
         "tests/PeripheralBattery.Tests.csproj",

@@ -213,6 +213,86 @@ namespace PeripheralBattery.Tests
                 "真实身份不该被误判为降级");
         }
 
+        // ============================================================ 后续设备自动发现
+        //
+        // 用户问：「我后面添加设备如何添加，会自动检测吗？」
+        //
+        // 原状：只在首次启动探测一次，之后新插的设备必须手动去设置里勾。
+        // 现在两条路：
+        //   * 主力 —— WM_DEVICECHANGE 广播，插入即全扫（即时）
+        //   * 兜底 —— 每轮刷新补探一台（防广播丢失）
+
+        [Test]
+        public static void ManualDisableBlocksAutoDetect()
+        {
+            // 用户手动关掉的设备不能因为「设备还插着」被自动重新打开。
+            // 这是 DisabledDevices 与 ManualDisabled 必须分开的原因：
+            //   前者 = 当前关闭的全部（含首次没探测到的）
+            //   后者 = 用户亲手取消勾选的
+            var settings = new Settings();
+
+            settings.SetDeviceEnabled("nuphy", false);
+            settings.MarkManualDisabled("nuphy", true);
+
+            Assert.True(settings.IsManuallyDisabled("nuphy"),
+                "手动关闭要能被查到，否则自动检测会把它又打开");
+
+            // 首次探测没找到的那类：只在 DisabledDevices 里，不算手动关闭
+            settings.SetDeviceEnabled("acer-vkm3", false);
+            Assert.False(settings.IsManuallyDisabled("acer-vkm3"),
+                "首次没探测到的不该算「手动关闭」，要留机会后续自动发现");
+        }
+
+        [Test]
+        public static void ManualDisableCanBeCleared()
+        {
+            var settings = new Settings();
+            settings.MarkManualDisabled("atk-v75x", true);
+            Assert.True(settings.IsManuallyDisabled("atk-v75x"), "已标记");
+
+            settings.MarkManualDisabled("atk-v75x", false);
+            Assert.False(settings.IsManuallyDisabled("atk-v75x"),
+                "用户手动打开后要能清掉标记");
+        }
+
+        [Test]
+        public static void ManualDisabledSurvivesRoundTrip()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + System.Guid.NewGuid().ToString("N"));
+            try
+            {
+                var settings = new Settings();
+                settings.MarkManualDisabled("nuphy", true);
+                settings.SaveTo(dir);
+
+                var reloaded = Settings.LoadFrom(dir);
+                Assert.True(reloaded.IsManuallyDisabled("nuphy"),
+                    "手动关闭标记要落盘，否则重启后设备会被自动打开");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(dir, true); } catch (System.Exception) { }
+            }
+        }
+
+        [Test]
+        public static void ManualDisabledListIsSanitized()
+        {
+            var settings = new Settings
+            {
+                ManualDisabled = new System.Collections.Generic.List<string>
+                {
+                    "nuphy", "", "  ", "NUPHY", "atk-v75x",
+                },
+            };
+            settings.Sanitize();
+
+            Assert.Equal(2, settings.ManualDisabled.Count,
+                "去空 + 去重（忽略大小写）");
+            Assert.True(settings.IsManuallyDisabled("nuphy"), "正常的保留");
+        }
+
         // ============================================================ 读数新鲜度
         //
         // 用户问：「我只连了一个鼠标，你怎么知道我有三个设备？」

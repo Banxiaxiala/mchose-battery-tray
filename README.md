@@ -9,7 +9,7 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](#授权)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
-[![Size](https://img.shields.io/badge/single%20exe-494%20KB-blue?style=flat-square)](#性能)
+[![Size](https://img.shields.io/badge/single%20exe-498%20KB-blue?style=flat-square)](#性能)
 [![Tests](https://img.shields.io/badge/tests-232%20passed-success?style=flat-square)](#测试)
 [![Devices](https://img.shields.io/badge/devices-60%2B%20models-informational?style=flat-square)](#兼容性)
 
@@ -237,6 +237,25 @@ Program  →  UI  →  Services  →  Hardware  →  Core  →  Models
 因为名字会改，key 是稳定的文件标识）。手改配置留下空串或重复项时，
 `Sanitize()` 会清掉。
 
+### 后续添加设备
+
+**插上就会自己发现，不用手动去设置里勾。** 两条路：
+
+| 途径 | 触发时机 | 说明 |
+|---|---|---|
+| **设备接入广播** | 插上立刻 | 监听 `WM_DEVICECHANGE` / `DBT_DEVICEARRIVAL`，插入后等 1.2 秒（留给驱动加载）再全扫一遍未启用的设备 |
+| **每轮补探一台** | 每 30 秒 | 兜底，防止广播丢失。轮流试，不每轮扫全部 |
+
+判定「发现」的判据与首次探测一致：**在线 + 有电量 + 数据新鲜（10 分钟内）**。
+只枚举到接口不算 —— 那可能是个永远 0% 的空环。
+
+两个刻意的限制：
+
+- **手动关闭的设备不会被自动打开。** `settings.json` 里单独记了
+  `manual_disabled`，只有你自己重新勾选才会启用
+- **不做无脑轮询全扫。** 未接设备每次读取都要等超时（0.4~1.3 秒），
+  14 台全扫一轮十几秒，会拖垮 30 秒的刷新间隔
+
 ## 兼容性
 
 设备清单按**证据等级**分层，不把「协议理论上支持」写成「已验证」：
@@ -326,7 +345,12 @@ PID 来自 [OpenRazer](https://github.com/openrazer/openrazer) 的公开设备�
 | 迈从（键盘） | G75 PRO / G87 V2 / Z75S | 迈从键盘 0x13 帧（G75 PRO 只收 20 字节） |
 | NuPhy | Air75 V2 / Halo75 V2 / WH80 | NuPhy 65B（两步：先读模式再算偏移） |
 
-**全部默认关闭**，装了的用户在设置面板里打开。
+**这些型号不需要你手动打开。** 首次启动会探测一遍，插着的设备自动启用；
+之后插新设备也会自动发现（见下方「后续添加设备」）。
+
+只有**你手动取消勾选**过的设备才会保持关闭 —— 程序不会因为设备还插着
+就把你明确关掉的东西又打开。
+
 这些设备报 issue 时请务必附 `--probe --trace` 输出 —— 没有真机验证过的
 协议最需要的就是「第一次真实运行的结果」。
 
@@ -502,7 +526,7 @@ dotnet run --project tests\PeripheralBattery.Tests.csproj
 
 | 指标 | 数值 |
 |---|---|
-| 单文件 exe | 494 KB（framework-dependent） |
+| 单文件 exe | 498 KB（framework-dependent） |
 | 运行时代码 | 约 9,100 行（25 个文件） |
 | 内存占用 | 私有约 39 MB / 工作集约 94 MB（WPF + 亚克力实测） |
 | 罗技读取 | ~130 ms（含两遍槽位探测） |

@@ -92,6 +92,22 @@ namespace PeripheralBattery.UI
 
         private TaskbarCreatedHook? _hook;
 
+        /// <summary>
+        /// 设备插入/拔出时触发。
+        ///
+        /// 用 WM_DEVICECHANGE 而不是定时轮询：
+        ///   * Windows 会**主动广播**，插入即响应（零延迟、零平时开销）
+        ///   * 轮询要挨个试超时，14 个未接设备一轮十几秒
+        /// </summary>
+        public event Action? DeviceChanged;
+
+        /// <summary>WM_DEVICECHANGE：设备数量或配置发生变化</summary>
+        private const int WM_DEVICECHANGE = 0x0219;
+        /// <summary>DBT_DEVICEARRIVAL：设备已插入且可用</summary>
+        private const int DBT_DEVICEARRIVAL = 0x8000;
+        /// <summary>DBT_DEVICEREMOVECOMPLETE：设备已移除</summary>
+        private const int DBT_DEVICEREMOVECOMPLETE = 0x8004;
+
         private sealed class TaskbarCreatedHook : NativeWindow
         {
             private readonly TrayIcon _owner;
@@ -103,6 +119,24 @@ namespace PeripheralBattery.UI
                 {
                     // explorer 重启：重新挂上图标
                     _owner._notifyIcon.Visible = true;
+                }
+                else if (m.Msg == WM_DEVICECHANGE)
+                {
+                    int evt = m.WParam.ToInt32();
+                    if (evt == DBT_DEVICEARRIVAL || evt == DBT_DEVICEREMOVECOMPLETE)
+                    {
+                        // 不要在窗口过程里做重活（枚举 HID、开句柄可能卡几百毫秒），
+                        // 那会把系统广播循环堵住。扔到线程池里异步做。
+                        Action? handler = _owner.DeviceChanged;
+                        if (handler != null)
+                        {
+                            System.Threading.Tasks.Task.Run(() =>
+                            {
+                                try { handler(); }
+                                catch (Exception) { }
+                            });
+                        }
+                    }
                 }
                 base.WndProc(ref m);
             }

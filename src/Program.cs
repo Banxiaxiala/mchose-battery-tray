@@ -82,6 +82,17 @@ namespace PeripheralBattery
         public string Error { get; set; } = "";
 
         /// <summary>
+        /// 下一次允许被「自动检测」尝试的时刻（UTC ticks）。
+        ///
+        /// 为什么不是一次性的「已探测过」布尔：
+        /// 设备插上时可能正在休眠，单次探测失败就永久放弃会漏掉它。
+        /// 所以失败后冷却一段时间再试 —— 冷却期 5 分钟，
+        /// 14 台轮流 + 5 分钟冷却，仍能在一个刷新周期内覆盖到新插入的设备，
+        /// 又不会每轮都去碰那些确实没插的型号。
+        /// </summary>
+        public DateTime NextAutoProbeAt { get; set; } = DateTime.MinValue;
+
+        /// <summary>
         /// 连续没读到的次数。用来区分「空口丢了一帧」与「设备真的没了」。
         /// 没有它，丢一帧就会把卡片与托盘标成离线（默认 30 秒刷新一次，
         /// 错就错 30 秒）—— 用户看到的是「耳机明明在用却掉线」。
@@ -246,6 +257,11 @@ namespace PeripheralBattery
                     if (string.Equals(slot.HistoryKey, key, StringComparison.OrdinalIgnoreCase))
                     {
                         slot.Enabled = enabled;
+                        // 手动关闭要记下来，否则「后续自动检测」会把它又打开。
+                        // 手动打开时清掉标记并允许重新探测一次。
+                        _settings.MarkManualDisabled(key, !enabled);
+                        // 手动打开时清掉冷却，让它立刻有机会被探测
+                        if (enabled) slot.NextAutoProbeAt = DateTime.MinValue;
                     }
                 }
                 ReassignRings();
@@ -261,6 +277,33 @@ namespace PeripheralBattery
 
             _tray.Clicked += ToggleCard;
             _tray.RefreshRequested += RefreshNow;
+
+            // 设备插入/拔出时立刻扫一遍，而不是等下一轮 30 秒。
+            // 注意回调在线程池线程上，必须切回 UI 线程再动界面。
+            _tray.DeviceChanged += () =>
+            {
+                try
+                {
+                    _card.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        // 插入后系统枚举/驱动加载需要一点时间，
+                        // 立刻扫常常还没就绪 —— 稍微等一下再扫。
+                        var delay = new System.Windows.Threading.DispatcherTimer(
+                            System.Windows.Threading.DispatcherPriority.Background)
+                        {
+                            Interval = TimeSpan.FromMilliseconds(1200),
+                        };
+                        delay.Tick += (_, _) =>
+                        {
+                            delay.Stop();
+                            ScanForNewDevices();
+                            RefreshNow();
+                        };
+                        delay.Start();
+                    }));
+                }
+                catch (Exception) { }
+            };
             _tray.AutoStartToggled += ToggleAutoStart;
             _tray.ExitRequested += () =>
             {
@@ -805,11 +848,134 @@ namespace PeripheralBattery
                 CheckLowBattery(slot);
             }
 
+            // 顺带探一台「还没启用也没试过」的设备。
+            // 这样用户后来插上的设备会被自动发现，不需要手动去设置里勾。
+            TryAutoDetectOne();
+
             if (_card.IsVisible)
             {
                 RefreshCardData();
                 _card.Reposition();
             }
+        }
+
+        /// <summary>
+        /// 设备接入时，把所有「未启用且非手动关闭」的设备**全扫一遍**。
+        ///
+        /// 与 TryAutoDetectOne 的分工：
+        ///   TryAutoDetectOne —— 平时每轮补一台（兜底，防止漏掉广播）
+        ///   ScanForNewDevices —— 收到设备接入广播时全扫（要的就是即时性）
+        ///
+        /// 全扫在这里可以接受：只在插入那一刻发生一次，不是每轮都做。
+        /// </summary>
+        private static void ScanForNewDevices()
+        {
+            var activated = new List<string>();
+
+            foreach (var slot in _devices)
+            {
+                if (slot.Enabled) continue;
+                if (_settings.IsManuallyDisabled(slot.HistoryKey)) continue;
+
+                Reading? reading = null;
+                try
+                {
+                    (reading, _) = slot.Read();
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+
+                if (reading == null || !reading.Percent.HasValue) continue;
+                if (!reading.Connected) continue;
+                if (!reading.IsFresh(TimeSpan.FromMinutes(10))) continue;
+
+                if (!_settings.SetDeviceEnabled(slot.HistoryKey, true)) continue;
+
+                slot.Enabled = true;
+                slot.Latest = reading;
+                if (string.IsNullOrEmpty(reading.Identity))
+                {
+                    reading.Identity = DeviceIdentity.ModelOnly(slot.HistoryKey);
+                }
+                reading.Identity = _settings.ResolveChannelIdentity(
+                    slot.HistoryKey, reading.Identity);
+                reading.Nickname = _settings.GetNickname(reading.Identity);
+                activated.Add(slot.Label);
+            }
+
+            if (activated.Count == 0) return;
+
+            ReassignRings();
+            _settings.Save();
+            Core.Tracer.Line("[设备接入] 自动启用：" + string.Join("、", activated));
+        }
+
+        /// <summary>
+        /// 每轮探测**一台**尚未启用的设备。
+        ///
+        /// 为什么是「一台」而不是「全部」：
+        /// 未接入的设备每次读取都要等超时（0.4~1.3 秒），14 台全扫一轮十几秒，
+        /// 30 秒的刷新间隔会被彻底拖垮。轮流探测每轮只多付一次超时的代价，
+        /// 用户插上新设备后最多 N 轮（约 N×30 秒）被自动发现 —— 可接受。
+        ///
+        /// 候选排除两类：
+        ///   * 已启用的（不用再探）
+        ///   * 用户**手动关闭**的（他明确不要，不能因为设备还插着就自动打开）
+        ///
+        /// 这是**兜底**：主力途径是 TrayIcon.DeviceChanged 的
+        /// WM_DEVICECHANGE 广播（插入即扫）。轮询只是防止广播丢失。
+        /// </summary>
+        private static void TryAutoDetectOne()
+        {
+            var now = DateTime.UtcNow;
+            DeviceSlot? candidate = null;
+            foreach (var slot in _devices)
+            {
+                if (slot.Enabled) continue;
+                if (_settings.IsManuallyDisabled(slot.HistoryKey)) continue;
+                if (slot.NextAutoProbeAt > now) continue;   // 还在冷却期
+                candidate = slot;
+                break;
+            }
+            if (candidate == null) return;
+
+            // 无论成败都排下一次冷却：失败的设备不能每轮都拖一次超时
+            candidate.NextAutoProbeAt = now.AddMinutes(5);
+
+            Reading? reading = null;
+            try
+            {
+                (reading, _) = candidate.Read();
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            // 与首次探测同一条判据：在线 + 有电量 + 数据新鲜
+            if (reading == null || !reading.Percent.HasValue) return;
+            if (!reading.Connected) return;
+            if (!reading.IsFresh(TimeSpan.FromMinutes(10))) return;
+
+            // 探到了：自动启用
+            if (!_settings.SetDeviceEnabled(candidate.HistoryKey, true)) return;
+
+            candidate.Enabled = true;
+            candidate.Latest = reading;
+            if (string.IsNullOrEmpty(reading.Identity))
+            {
+                reading.Identity = DeviceIdentity.ModelOnly(candidate.HistoryKey);
+            }
+            reading.Identity = _settings.ResolveChannelIdentity(
+                candidate.HistoryKey, reading.Identity);
+            reading.Nickname = _settings.GetNickname(reading.Identity);
+
+            ReassignRings();
+            _settings.Save();
+
+            Core.Tracer.Line($"[自动检测] 发现新设备 {candidate.Label}，已自动启用");
         }
 
         /// <summary>按 Ring 槽位摊成数组交给托盘画图；缺的槽位传 null</summary>

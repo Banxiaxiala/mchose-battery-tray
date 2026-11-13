@@ -243,6 +243,37 @@ namespace PeripheralBattery.Services
             return true;
         }
 
+        /// <summary>
+        /// 用户**手动**关闭过的设备（history key）。
+        ///
+        /// 与 DisabledDevices 的区别：
+        ///   DisabledDevices  = 当前关闭的全部设备（含首次探测没找到的）
+        ///   ManualDisabled   = 用户亲手取消勾选的
+        ///
+        /// 为什么需要区分：首次探测没找到的设备应当继续参与「后续自动检测」
+        /// （用户以后可能插上）；而用户手动关掉的不能因为设备还插着就被
+        /// 自动重新打开 —— 那是违背他的明确意愿。
+        /// </summary>
+        [JsonPropertyName("manual_disabled")]
+        public List<string> ManualDisabled { get; set; } = new();
+
+        /// <summary>这台设备是否被用户手动关闭过</summary>
+        public bool IsManuallyDisabled(string historyKey)
+        {
+            if (string.IsNullOrEmpty(historyKey)) return false;
+            return ManualDisabled.Exists(k =>
+                string.Equals(k, historyKey, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>记录/撤销「用户手动关闭」标记</summary>
+        public void MarkManualDisabled(string historyKey, bool disabled)
+        {
+            if (string.IsNullOrEmpty(historyKey)) return;
+            ManualDisabled.RemoveAll(k =>
+                string.Equals(k, historyKey, StringComparison.OrdinalIgnoreCase));
+            if (disabled) ManualDisabled.Add(historyKey);
+        }
+
         /// <summary>某台设备是否被用户关闭了监控</summary>
         public bool IsDeviceEnabled(string historyKey)
         {
@@ -397,6 +428,14 @@ namespace PeripheralBattery.Services
                     ChannelAliases.Remove(key);
                 }
             }
+
+            // 手动关闭列表：清理空键与重复
+            ManualDisabled ??= new List<string>();
+            ManualDisabled.RemoveAll(string.IsNullOrWhiteSpace);
+            ManualDisabled = ManualDisabled
+                .Select(k => k.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             // 备注表同样要清理：空键、空值、过长
             DeviceNicknames ??= new Dictionary<string, string>();

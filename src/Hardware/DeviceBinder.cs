@@ -270,6 +270,8 @@ namespace PeripheralBattery.Hardware
                 Connected = state.Connected,
                 Status = state.Status,
                 Transport = "蓝牙",
+                // 蓝牙 MAC 是天然唯一的设备身份，比 HID 序列号可靠得多
+                Identity = DeviceIdentity.Bluetooth(info.Address),
             }, "");
         }
 

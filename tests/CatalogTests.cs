@@ -147,6 +147,260 @@ namespace PeripheralBattery.Tests
             Assert.NotNull(Protocols.RazerModelName("", 0x025C), "键盘在表里");
         }
 
+        // ============================================================ 设备身份
+        //
+        // 核心问题：两台**同型号**设备同时接入时，不能共用历史/开关/备注。
+        // 身份必须来自物理唯一标识（MAC / 序列号），拿不到才降级为型号。
+
+        [Test]
+        public static void IdentityFromBluetoothMac()
+        {
+            string a = Models.DeviceIdentity.Bluetooth("44:5E:CD:40:7C:2A");
+            string b = Models.DeviceIdentity.Bluetooth("C0:06:72:D9:96:23");
+            Assert.True(a.Length > 0, "MAC 应能生成身份");
+            Assert.True(a != b, "不同 MAC 必须得到不同身份");
+            Assert.Equal(a, Models.DeviceIdentity.Bluetooth("44:5e:cd:40:7c:2a"),
+                "大小写不同但同一台设备，身份必须相同");
+        }
+
+        [Test]
+        public static void IdentityFromHidSerial()
+        {
+            string a = Models.DeviceIdentity.Hid(0x046D, 0xC54D, "SN0001");
+            string b = Models.DeviceIdentity.Hid(0x046D, 0xC54D, "SN0002");
+            Assert.True(a != b, "同型号不同序列号必须区分开");
+            Assert.True(a.Contains("046D"), "身份里带上型号便于排查");
+        }
+
+        [Test]
+        public static void IdentityRequiresSerialForHid()
+        {
+            // 没有序列号时必须返回空，让调用方继续降级 ——
+            // 生成一个「看起来唯一、实际所有同型号都一样」的假身份更糟
+            Assert.Equal("", Models.DeviceIdentity.Hid(0x046D, 0xC54D, null),
+                "无序列号 → 不生成身份");
+            Assert.Equal("", Models.DeviceIdentity.Hid(0x046D, 0xC54D, ""),
+                "空串同理");
+            Assert.Equal("", Models.DeviceIdentity.Hid(0x046D, 0xC54D, "   "),
+                "纯空白同理");
+        }
+
+        [Test]
+        public static void IdentityFromLogitechSlot()
+        {
+            // 同一个接收器上的两个槽位必须区分开
+            string s1 = Models.DeviceIdentity.LogitechSlot("RECV01", 1);
+            string s2 = Models.DeviceIdentity.LogitechSlot("RECV01", 2);
+            Assert.True(s1 != s2, "同一接收器的不同槽位要区分");
+
+            // 不同接收器的同一个槽位也要区分
+            string r1 = Models.DeviceIdentity.LogitechSlot("RECV01", 1);
+            string r2 = Models.DeviceIdentity.LogitechSlot("RECV02", 1);
+            Assert.True(r1 != r2, "不同接收器要区分");
+
+            Assert.Equal("", Models.DeviceIdentity.LogitechSlot(null, 1),
+                "无接收器序列号 → 降级");
+        }
+
+        [Test]
+        public static void ModelOnlyIdentityIsFlagged()
+        {
+            string fallback = Models.DeviceIdentity.ModelOnly("razer");
+            Assert.True(Models.DeviceIdentity.IsModelOnly(fallback),
+                "降级身份要能被识别出来");
+            Assert.False(Models.DeviceIdentity.IsModelOnly(
+                Models.DeviceIdentity.Bluetooth("44:5E:CD:40:7C:2A")),
+                "真实身份不该被误判为降级");
+        }
+
+        // ============================================================ 通道别名
+        //
+        // 用户问的核心问题：「用蓝牙后再用端口，会不会被识别成两个设备？」
+        //
+        // 槽位是按型号分的（HistoryKey），所以不会变成两行。
+        // 但身份按通道算，两条通道天然不同串 —— 不收敛的话备注会丢、
+        // 历史看起来断成两段。这组测试锁住「收敛后仍是一台」。
+
+        [Test]
+        public static void ChannelIdentityStableAcrossSwitches()
+        {
+            var settings = new Settings();
+            const string slot = "razer";
+
+            // 第一次：走蓝牙
+            string viaBluetooth = settings.ResolveChannelIdentity(
+                slot, "bt:44:5E:CD:40:7C:2A");
+            Assert.Equal("bt:44:5E:CD:40:7C:2A", viaBluetooth, "首次即主身份");
+
+            // 给它起个备注
+            settings.SetNickname(viaBluetooth, "客厅耳机");
+
+            // 切到 2.4G：身份变了，但应被收敛回主身份
+            string viaWireless = settings.ResolveChannelIdentity(
+                slot, "hid:1532:0555:RECV01");
+            Assert.Equal(viaBluetooth, viaWireless,
+                "切到 2.4G 后身份必须收敛回主身份");
+            Assert.Equal("客厅耳机", settings.GetNickname(viaWireless),
+                "备注不能因为切通道而丢失");
+
+            // 再切回蓝牙：仍是同一个
+            string backToBluetooth = settings.ResolveChannelIdentity(
+                slot, "bt:44:5E:CD:40:7C:2A");
+            Assert.Equal(viaBluetooth, backToBluetooth, "切回来仍一致");
+            Assert.Equal("客厅耳机", settings.GetNickname(backToBluetooth),
+                "来回切备注都还在");
+        }
+
+        [Test]
+        public static void DifferentSlotsDoNotShareIdentity()
+        {
+            // 不同槽位是不同设备，不能被同一个主身份吞掉
+            var settings = new Settings();
+
+            string mouse = settings.ResolveChannelIdentity(
+                "logitech", "hid:046D:C54D:SN1");
+            string headset = settings.ResolveChannelIdentity(
+                "razer", "bt:44:5E:CD:40:7C:2A");
+
+            Assert.True(mouse != headset, "不同槽位必须得到不同身份");
+        }
+
+        [Test]
+        public static void AliasIsRecordedForLookup()
+        {
+            var settings = new Settings();
+            settings.ResolveChannelIdentity("razer", "bt:AA:BB:CC:DD:EE:FF");
+            settings.ResolveChannelIdentity("razer", "hid:1532:0555:RECV01");
+
+            // 备选通道身份应该能查回主身份
+            Assert.Equal("bt:AA:BB:CC:DD:EE:FF",
+                settings.LookupAlias("hid:1532:0555:RECV01"),
+                "备选身份应能查回主身份");
+            Assert.Equal("", settings.LookupAlias("hid:9999:0000:NOPE"),
+                "没登记过的返回空");
+        }
+
+        [Test]
+        public static void AliasSurvivesRoundTrip()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + System.Guid.NewGuid().ToString("N"));
+            try
+            {
+                var settings = new Settings();
+                settings.ResolveChannelIdentity("razer", "bt:11:22:33:44:55:66");
+                settings.ResolveChannelIdentity("razer", "hid:1532:0555:RECV");
+                settings.SaveTo(dir);
+
+                var reloaded = Settings.LoadFrom(dir);
+                // 重启后切到 2.4G，仍应认出是同一台
+                string after = reloaded.ResolveChannelIdentity(
+                    "razer", "hid:1532:0555:RECV");
+                Assert.Equal("bt:11:22:33:44:55:66", after,
+                    "重启后别名仍生效");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(dir, true); } catch (System.Exception) { }
+            }
+        }
+
+        [Test]
+        public static void EmptyIdentityIsHandled()
+        {
+            var settings = new Settings();
+            Assert.Equal("", settings.ResolveChannelIdentity("razer", ""),
+                "空身份不崩");
+            Assert.Equal("x", settings.ResolveChannelIdentity("", "x"),
+                "空槽位直接返回原身份");
+        }
+
+        // ============================================================ 备注
+
+        [Test]
+        public static void NicknameRoundTrip()
+        {
+            var settings = new Settings();
+            string identity = Models.DeviceIdentity.Bluetooth("44:5E:CD:40:7C:2A");
+
+            Assert.Equal("", settings.GetNickname(identity), "默认没有备注");
+            Assert.True(settings.SetNickname(identity, "客厅耳机"), "设置应返回 true");
+            Assert.Equal("客厅耳机", settings.GetNickname(identity), "读回备注");
+            Assert.False(settings.SetNickname(identity, "客厅耳机"), "同值不重复写");
+            Assert.True(settings.SetNickname(identity, ""), "空值表示清除");
+            Assert.Equal("", settings.GetNickname(identity), "已清除");
+        }
+
+        [Test]
+        public static void NicknameIsPerIdentityNotPerModel()
+        {
+            // 关键：两台同型号必须能有各自的备注
+            var settings = new Settings();
+            string left = Models.DeviceIdentity.Bluetooth("AA:BB:CC:DD:EE:01");
+            string right = Models.DeviceIdentity.Bluetooth("AA:BB:CC:DD:EE:02");
+
+            settings.SetNickname(left, "左耳");
+            settings.SetNickname(right, "右耳");
+
+            Assert.Equal("左耳", settings.GetNickname(left), "第一台");
+            Assert.Equal("右耳", settings.GetNickname(right), "第二台");
+        }
+
+        [Test]
+        public static void NicknameTrimmedAndLengthCapped()
+        {
+            var settings = new Settings();
+            string identity = "bt:AA:BB:CC:DD:EE:FF";
+
+            settings.SetNickname(identity, "  带空白的名字  ");
+            Assert.Equal("带空白的名字", settings.GetNickname(identity), "两端空白要裁掉");
+
+            // 托盘提示只有 63 字符，备注过长会挤掉别的行
+            settings.SetNickname(identity, new string('x', 100));
+            Assert.True(settings.GetNickname(identity).Length <= 24,
+                "备注长度要限制");
+        }
+
+        [Test]
+        public static void NicknameSurvivesRoundTrip()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + System.Guid.NewGuid().ToString("N"));
+            try
+            {
+                string identity = Models.DeviceIdentity.Bluetooth("11:22:33:44:55:66");
+                var settings = new Settings();
+                settings.SetNickname(identity, "主力鼠标");
+                settings.SaveTo(dir);
+
+                var reloaded = Settings.LoadFrom(dir);
+                Assert.Equal("主力鼠标", reloaded.GetNickname(identity),
+                    "备注要落盘并按 Identity 取回");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(dir, true); } catch (System.Exception) { }
+            }
+        }
+
+        [Test]
+        public static void ReadingDisplayNamePrefersNickname()
+        {
+            var reading = new Models.Reading { Name = "BlackShark V2 Pro" };
+            Assert.Equal("BlackShark V2 Pro", reading.DisplayName, "无备注时用型号");
+
+            reading.Nickname = "客厅耳机";
+            Assert.Equal("客厅耳机", reading.DisplayName, "备注优先");
+
+            reading.Nickname = "   ";
+            Assert.Equal("BlackShark V2 Pro", reading.DisplayName,
+                "备注是空白时退回型号");
+
+            reading.Name = "";
+            reading.Nickname = "";
+            Assert.Equal("", reading.DisplayName, "两者都空时返回空串");
+        }
+
         // ============================================================ 首次探测
         //
         // 首次启动（没有 settings.json）要自动探出「实际连着哪些设备」，

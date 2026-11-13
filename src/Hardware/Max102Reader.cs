@@ -58,6 +58,9 @@ namespace PeripheralBattery.Hardware
         /// <summary>蓝牙通道的设备名前缀；空串表示不支持蓝牙通道</summary>
         public string BluetoothNamePrefix { get; }
 
+        /// <summary>最近一次命中接口的路径，用于构造设备身份</summary>
+        private string _lastInterfacePath = "";
+
         /// <summary>卡片上显示的型号名</summary>
         public string ModelName { get; }
 
@@ -220,6 +223,10 @@ namespace PeripheralBattery.Hardware
                     string name = ModelName.Length > 0
                         ? ModelName
                         : Protocols.Max102ModelName(iface.Product);
+                    _lastInterfacePath = iface.Path;
+                    // VIA 通道：身份用接口路径（含唯一实例段）
+                    _lastInterfacePath = iface.Path;
+
                     return (new Reading
                     {
                         Name = name,

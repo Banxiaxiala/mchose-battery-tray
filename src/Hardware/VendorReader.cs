@@ -899,7 +899,26 @@ namespace PeripheralBattery.Hardware
                 Connected = true,
                 Status = charging ? "充电中" : "放电中",
                 Transport = transport,
+                // 身份由调用方通过 LastIdentity 注入（见 WithIdentity）
+                Identity = _lastIdentity,
             };
+        }
+
+        /// <summary>
+        /// 最近一次成功读取时用的设备路径。
+        ///
+        /// 身份从路径里取：`\\?\hid#vid_3837&pid_...#{guid}\<唯一段>`。
+        /// 同一型号的不同物理设备，这个唯一段不同 —— 足以区分实例。
+        /// 拿不到就留空，由上层降级为 model: 身份。
+        /// </summary>
+        private string _lastIdentity = "";
+
+        /// <summary>由各 Read* 方法在成功后调用，记录本次命中的接口路径</summary>
+        private void MarkIdentity(string? devicePath, string modelKey)
+        {
+            _lastIdentity = string.IsNullOrEmpty(devicePath)
+                ? Models.DeviceIdentity.ModelOnly(modelKey)
+                : Models.DeviceIdentity.Hid(0, 0, devicePath);
         }
     }
 }

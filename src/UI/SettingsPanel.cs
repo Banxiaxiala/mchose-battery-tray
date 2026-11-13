@@ -67,6 +67,28 @@ namespace PeripheralBattery.UI
         /// </summary>
         private readonly List<(string Key, string Label)> _devices = new();
 
+        /// <summary>
+        /// 二级面板用的设备行：型号 key、显示名、唯一标识、标识提示文案。
+        ///
+        /// 与 _devices 分开是因为这里需要**运行时**才知道的信息
+        /// （Identity 与备注），而 _devices 是构造时传进来的静态清单。
+        /// </summary>
+        public sealed class DeviceRow
+        {
+            public string Key = "";
+            public string DisplayName = "";
+            public string Identity = "";
+            public string IdentityHint = "";
+        }
+
+        private List<DeviceRow> _deviceRows = new();
+
+        /// <summary>由 Program 在每次刷新后更新，供二级面板展示</summary>
+        public void SetDeviceRows(IEnumerable<DeviceRow> rows)
+        {
+            _deviceRows = new List<DeviceRow>(rows);
+        }
+
         /// <summary>某台设备的开关被切换（key, 是否启用）。已落盘。</summary>
         public event Action<string, bool>? DeviceToggled;
 
@@ -886,10 +908,15 @@ namespace PeripheralBattery.UI
             root.Children.Add(hint);
 
             var list = new StackPanel();
-            foreach (var (key, label) in _devices)
+            foreach (var device in _deviceRows)
             {
-                var box = MakeCheckBox(label, _settings.IsDeviceEnabled(key), "");
-                string capturedKey = key;
+                var row = new StackPanel { Margin = new Thickness(0, 2, 0, 6) };
+
+                // ---- 第一行：勾选 + 真实名字 ----
+                var box = MakeCheckBox(device.DisplayName,
+                    _settings.IsDeviceEnabled(device.Key), "");
+                string capturedKey = device.Key;
+                string capturedIdentity = device.Identity;
                 box.Checked += (_, _) =>
                 {
                     if (_suppressEvents) return;
@@ -900,7 +927,65 @@ namespace PeripheralBattery.UI
                     if (_suppressEvents) return;
                     ToggleDevice(capturedKey, false);
                 };
-                list.Children.Add(box);
+                row.Children.Add(box);
+
+                // ---- 第二行：唯一标识（小字，方便分辨同型号）----
+                var identityText = MakeText(device.IdentityHint, 8.5, Faint());
+                identityText.TextWrapping = TextWrapping.Wrap;
+                identityText.Margin = new Thickness(22, 0, 0, 2);
+                row.Children.Add(identityText);
+
+                // ---- 第三行：备注输入 ----
+                var noteRow = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(22, 0, 0, 0),
+                };
+                var noteBox = new TextBox
+                {
+                    Width = 150,
+                    Height = 22,
+                    FontSize = 10,
+                    Padding = new Thickness(5, 0, 5, 0),
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Text = _settings.GetNickname(capturedIdentity),
+                    ToolTip = "给这台设备起个名字，例如「主力鼠标」「客厅耳机」",
+                };
+                noteBox.TextChanged += (_, _) =>
+                {
+                    if (_suppressEvents) return;
+                    if (_settings.SetNickname(capturedIdentity, noteBox.Text))
+                    {
+                        Persist();
+                        _onDevicesChanged?.Invoke();
+                    }
+                };
+                noteRow.Children.Add(noteBox);
+                row.Children.Add(noteRow);
+
+                list.Children.Add(row);
+            }
+
+            if (_deviceRows.Count == 0)
+            {
+                // 还没读过任何设备（比如刚启动）：退回到静态清单，
+                // 只是没有标识与备注 —— 总比弹出一个空面板好
+                foreach (var (key, label) in _devices)
+                {
+                    var box = MakeCheckBox(label, _settings.IsDeviceEnabled(key), "");
+                    string capturedKey = key;
+                    box.Checked += (_, _) =>
+                    {
+                        if (_suppressEvents) return;
+                        ToggleDevice(capturedKey, true);
+                    };
+                    box.Unchecked += (_, _) =>
+                    {
+                        if (_suppressEvents) return;
+                        ToggleDevice(capturedKey, false);
+                    };
+                    list.Children.Add(box);
+                }
             }
 
             var scroll = new ScrollViewer

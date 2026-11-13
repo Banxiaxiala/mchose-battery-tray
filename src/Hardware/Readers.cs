@@ -231,6 +231,13 @@ namespace PeripheralBattery.Hardware
             try { reading.Name = DeviceName(deviceIndex, timeout); }
             catch { reading.Name = ""; }
             reading.Connected = true;
+
+            // 身份：接收器序列 + 槽位号。
+            // 槽位号在同一个接收器内唯一，接收器序列号区分不同接收器，
+            // 两者组合才能区分「同一个接收器上的两台同型号」。
+            // 序列号拿不到时留空，由上层降级为 model: 身份。
+            reading.Identity = DeviceIdentity.LogitechSlot(Key.serial, deviceIndex);
+
             return (reading, "ok");
         }
 
@@ -534,10 +541,20 @@ namespace PeripheralBattery.Hardware
                     // 那里有脱机断言锁住语义（尤其 connection == -1 不能当 0）。
                     var state = Protocols.InterpretRazerState(charging, connection);
 
+                    // 身份：接收器序列号 + PID。
+                    //
+                    // ⚠️ 这里是「2.4G 通道」的身份，与蓝牙通道的 bt:<MAC>
+                    // 不是同一个串 —— 同一台耳机切通道后会算出两个身份。
+                    // 上层用 ChannelAlias 把它们收敛到同一个主身份，
+                    // 否则备注与历史会跟着通道漂移。
+                    string identity = DeviceIdentity.Hid(
+                        iface.VendorId, iface.ProductId, iface.Serial);
+
                     return (new Reading
                     {
                         Name = Protocols.RazerModelName(iface.Product, iface.ProductId),
                         Percent = battery,
+                        Identity = identity,
                         Charging = state.Charging,
                         Connected = state.Connected,
                         Status = state.Status,

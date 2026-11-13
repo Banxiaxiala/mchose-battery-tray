@@ -475,6 +475,82 @@ namespace PeripheralBattery
         }
 
         /// <summary>
+        /// 把「每台设备的真实名字 + 唯一标识 + 备注」推给设置面板的二级页。
+        ///
+        /// 为什么要推：二级面板要能区分「同型号的两台」。型号 key 区分不了，
+        /// 必须显示 Identity（MAC / 序列号 / 接口路径）。
+        ///
+        /// 没有读数时（设备还没接）也照样列出，"标识" 一栏显示「未检测到」，
+        /// 这样用户仍然可以先给它起个备注。
+        /// </summary>
+        private static void SyncDeviceRows()
+        {
+            if (_settingsPanel == null) return;
+
+            var rows = new List<SettingsPanel.DeviceRow>();
+            foreach (var slot in _devices)
+            {
+                var reading = slot.Latest;
+                string identity = reading?.Identity ?? "";
+                if (identity.Length == 0)
+                {
+                    // 从没读到过：用型号 key 生成降级身份，
+                    // 这样备注至少能存下来，等设备回来时对得上
+                    identity = DeviceIdentity.ModelOnly(slot.HistoryKey);
+                }
+
+                string display = reading?.DisplayName ?? "";
+                if (display.Length == 0) display = slot.Label;
+
+                rows.Add(new SettingsPanel.DeviceRow
+                {
+                    Key = slot.HistoryKey,
+                    DisplayName = display,
+                    Identity = identity,
+                    IdentityHint = DescribeIdentity(identity, reading),
+                });
+            }
+            _settingsPanel.SetDeviceRows(rows);
+        }
+
+        /// <summary>
+        /// 把 Identity 变成人眼可读的提示。
+        ///
+        /// 直接显示 `hid:046D:C54D:SN123` 太技术化，但完全不显示又分不出
+        /// 同型号的两台。折中：显示**能区分**的那一段（MAC / 序列号尾号），
+        /// 并在无法区分时明确标注。
+        /// </summary>
+        private static string DescribeIdentity(string identity, Reading? reading)
+        {
+            if (reading == null)
+            {
+                return "未检测到（备注会在设备接入后生效）";
+            }
+
+            if (DeviceIdentity.IsModelOnly(identity))
+            {
+                return "⚠ 无法区分同型号实例（该协议未提供唯一标识）";
+            }
+
+            // bt:44:5E:CD:40:7C:2A → 显示完整 MAC
+            if (identity.StartsWith("bt:", StringComparison.OrdinalIgnoreCase))
+            {
+                return "蓝牙地址 " + identity.Substring(3);
+            }
+
+            // hid:...  → 取最后一段作为短标识
+            int lastColon = identity.LastIndexOf(':');
+            if (lastColon >= 0 && lastColon + 1 < identity.Length)
+            {
+                string tail = identity.Substring(lastColon + 1);
+                if (tail.Length > 18) tail = tail.Substring(tail.Length - 18);
+                return "标识 …" + tail;
+            }
+
+            return identity;
+        }
+
+        /// <summary>
         /// 首次启动探测：把「当前实际连着」的设备标记为启用。
         ///
         /// 为什么必须做：内置表里有 11 个「移植实现、未验证」的型号，
@@ -611,6 +687,31 @@ namespace PeripheralBattery
                 }
                 slot.Error = error ?? "";
 
+                // 身份与备注：每次读到都补一遍。
+                //
+                // 为什么在这里而不是 Reader 里：Note（备注）只有设置层知道，
+                // Reader 不该依赖设置。而 Identity 的降级逻辑需要设备型号 key，
+                // 也只有在这里拿得到。
+                if (reading != null)
+                {
+                    // Reader 没给出身份 → 降级为「只有型号」，行为同旧版
+                    if (string.IsNullOrEmpty(reading.Identity))
+                    {
+                        reading.Identity = DeviceIdentity.ModelOnly(slot.HistoryKey);
+                    }
+
+                    // ⚠️ 关键一步：同一台设备切换连接方式时，两条通道
+                    // 报上来的身份不同（蓝牙用 MAC、2.4G 用接收器序列号）。
+                    // 不收敛的话，用户切个连接方式就发现备注没了、历史断了。
+                    //
+                    // 收敛之后 reading.Identity 统一成该槽位的「主身份」，
+                    // 所以备注与历史都跟着设备走，而不是跟着通道走。
+                    reading.Identity = _settings.ResolveChannelIdentity(
+                        slot.HistoryKey, reading.Identity);
+
+                    reading.Nickname = _settings.GetNickname(reading.Identity);
+                }
+
                 // 只有真读到【当前】读数才记样本；读不到只回填 last_known，不改当前读数。
                 // 蓝牙通道要注意：系统属性在设备离线时仍会留着上次的值，
                 // 那种“陈旧值”写进历史会伪造出一条水平曲线，把续航预测的
@@ -651,6 +752,8 @@ namespace PeripheralBattery
                 }
             }
 
+            SyncDeviceRows();
+
             _tray.SetReadings(BuildRings());
             _tray.SetTooltip(BuildTooltip());
 
@@ -687,9 +790,11 @@ namespace PeripheralBattery
             var entries = new List<TooltipText.Entry>();
             foreach (var slot in ActiveDevices())
             {
-                string name = slot.Latest != null && slot.Latest.Name.Length > 0
-                    ? slot.Latest.Name
-                    : slot.Label;
+                // 备注名优先，其次型号，最后退回标签（鼠标/耳机/键盘）
+                string name = slot.Latest != null
+                    ? slot.Latest.DisplayName
+                    : "";
+                if (name.Length == 0) name = slot.Label;
                 string full = slot.Latest != null
                     ? slot.Latest.Line(name)
                     : FallbackLine(slot.Error, slot.Label, slot.Analysis);
@@ -732,7 +837,8 @@ namespace PeripheralBattery
             {
                 if (Notified.Add(slot.HistoryKey))
                 {
-                    string name = reading.Name.Length > 0 ? reading.Name : slot.Label;
+                    string name = reading.DisplayName;
+                    if (name.Length == 0) name = slot.Label;
                     _tray.ShowNotification("外设电量",
                         name + " 电量仅剩 " + reading.Percent.Value + "%");
                 }
@@ -884,8 +990,30 @@ namespace PeripheralBattery
                     Console.WriteLine("  读取失败：" + error);
                     return;
                 }
+
+                // --probe 走的是独立的 BuildDevices()，不经过 RefreshNow，
+                // 所以身份降级与备注要在这里补一遍 —— 否则输出里
+                // 看不到「标识」和「备注」，排查时容易误判。
+                if (string.IsNullOrEmpty(reading.Identity))
+                {
+                    reading.Identity = DeviceIdentity.ModelOnly(slot.HistoryKey);
+                }
+                // 与 RefreshNow 一致：先收敛通道身份，再取备注
+                reading.Identity = _settings.ResolveChannelIdentity(
+                    slot.HistoryKey, reading.Identity);
+                reading.Nickname = _settings.GetNickname(reading.Identity);
                 Console.WriteLine("  " + (reading.Name.Length > 0 ? reading.Name : "(未命名)"));
                 Console.WriteLine("    协议    " + reading.Transport);
+                if (reading.Identity.Length > 0)
+                {
+                    string mark = DeviceIdentity.IsModelOnly(reading.Identity)
+                        ? "（无法区分同型号实例）" : "";
+                    Console.WriteLine("    标识    " + reading.Identity + mark);
+                }
+                if (reading.Nickname.Length > 0)
+                {
+                    Console.WriteLine("    备注    " + reading.Nickname);
+                }
                 Console.WriteLine("    电量    " + reading.Percent + "%");
                 string state = reading.Status.Length > 0 ? reading.Status : "未知";
                 if (reading.Charging) state += "（充电中）";

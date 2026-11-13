@@ -26,6 +26,38 @@ namespace PeripheralBattery.Models
         public string Transport { get; set; } = "";
         public string Forecast { get; set; } = "";
 
+        /// <summary>
+        /// 这台**物理设备**的唯一标识，形如 `hid:046D:C54D:SN1234` 或
+        /// `bt:44:5E:CD:40:7C:2A`。
+        ///
+        /// 为什么需要它：以前用「型号 key」当身份（如 `razer`），
+        /// 两台同型号设备接入时会共用同一份历史文件、同一个开关、
+        /// 同一个备注 —— 后读到的那台会覆盖前一台的曲线。
+        ///
+        /// 拿不到唯一标识时退化为 `model:<型号key>`，此时行为与旧版一致
+        /// （同型号只算一台），但界面上会标注「无法区分实例」。
+        /// </summary>
+        public string Identity { get; set; } = "";
+
+        /// <summary>
+        /// 用户可改的备注名。空表示用 <see cref="Name"/>。
+        ///
+        /// 存在 Reading 上而不是设置里，是因为它跟着**这一台**走：
+        /// 拔掉设备再插回来，只要 Identity 一致，备注就还在。
+        /// </summary>
+        public string Nickname { get; set; } = "";
+
+        /// <summary>卡片/提示上显示的最终名字：备注优先，其次型号</summary>
+        public string DisplayName
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(Nickname)) return Nickname.Trim();
+                if (!string.IsNullOrWhiteSpace(Name)) return Name.Trim();
+                return "";
+            }
+        }
+
         public bool Known { get { return Percent.HasValue; } }
 
         /// <summary>托盘悬停提示里的一行</summary>
@@ -241,6 +273,91 @@ namespace PeripheralBattery.Models
         public void Reset()
         {
             _misses = 0;
+        }
+    }
+
+    /// <summary>
+    /// 设备身份串的构造规则。
+    ///
+    /// 抽成纯函数是为了能脱机断言 —— 「两台同型号会不会撞同一个身份」
+    /// 这件事必须靠测试保证，不能靠肉眼。
+    /// </summary>
+    public static class DeviceIdentity
+    {
+        /// <summary>蓝牙设备：用 MAC，最可靠</summary>
+        public static string Bluetooth(string mac)
+        {
+            string clean = (mac ?? "").Trim();
+            if (clean.Length == 0) return "";
+            return "bt:" + clean.ToUpperInvariant();
+        }
+
+        /// <summary>
+        /// HID 设备：VID:PID + 序列号。
+        ///
+        /// 序列号为空时**不生成身份** —— 否则同型号两台会得到同一个串，
+        /// 反而制造「看起来唯一、实际撞车」的假象。调用方必须继续降级。
+        /// </summary>
+        public static string Hid(int vendorId, int productId, string? serial)
+        {
+            string clean = (serial ?? "").Trim();
+            if (clean.Length == 0) return "";
+            return $"hid:{vendorId:X4}:{productId:X4}:{clean}";
+        }
+
+        /// <summary>
+        /// 罗技：接收器序列 + 设备槽位。
+        ///
+        /// 罗技槽位号在同一个接收器内唯一，接收器序列号又区分了不同接收器，
+        /// 所以两者组合能区分「同一个接收器上的多个槽位」。
+        /// </summary>
+        public static string LogitechSlot(string? receiverSerial, int slot)
+        {
+            string clean = (receiverSerial ?? "").Trim();
+            if (clean.Length == 0) return "";
+            return $"hid:046D:{clean}:slot{slot}";
+        }
+
+        /// <summary>
+        /// 降级身份：只有型号，不区分实例。
+        ///
+        /// 调用方拿到这种身份时应当在界面上标注「无法区分实例」，
+        /// 因为同型号两台会共用历史与开关。
+        /// </summary>
+        public static string ModelOnly(string modelKey)
+        {
+            return "model:" + (modelKey ?? "").Trim().ToLowerInvariant();
+        }
+
+        /// <summary>
+        /// 设备身份别名表：把一个通道的身份映射到「主身份」。
+        ///
+        /// 为什么要这一层：同一台设备切换连接方式时，两条通道算出的身份
+        /// 天然不同 —— 蓝牙用 MAC，2.4G 用接收器序列号。如果不做映射：
+        ///
+        ///   用蓝牙时  身份 = bt:44:5E:CD:40:7C:2A  → 备注「客厅耳机」
+        ///   切到 2.4G 身份 = hid:046D:RECV01:slot1   → 备注丢失
+        ///
+        /// 用户看到的是「备注没了」「历史断了」，像是换了一台设备。
+        ///
+        /// 解决方式：设备**第一次被识别**时记下它的身份，之后其它通道
+        /// 报上来的身份通过 Alias 表收敛到同一个主身份。
+        /// 判定「是不是同一台」靠型号 key + 最近通道的时间邻近性，
+        /// 而不是硬编码 —— 因为程序无法从协议层直接得知两者是同一台。
+        /// </summary>
+        public static string ResolveIdentity(string reported, string modelKey,
+            string preferredPrimary)
+        {
+            if (string.IsNullOrEmpty(reported)) return ModelOnly(modelKey);
+            if (string.IsNullOrEmpty(preferredPrimary)) return reported;
+            return preferredPrimary;
+        }
+
+        /// <summary>是不是降级身份（无法区分同型号实例）</summary>
+        public static bool IsModelOnly(string? identity)
+        {
+            return identity != null && identity.StartsWith("model:",
+                StringComparison.OrdinalIgnoreCase);
         }
     }
 

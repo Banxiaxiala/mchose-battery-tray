@@ -132,6 +132,117 @@ namespace PeripheralBattery.Services
         [JsonPropertyName("auto_probe_done")]
         public bool AutoProbeDone { get; set; }
 
+        // ---------------------------------------------------------- 备注
+        /// <summary>
+        /// 设备备注：Identity → 用户起的名字。
+        ///
+        /// 为什么按 Identity（而不是型号 key）存：备注要跟着**那台物理设备**走。
+        /// 两台同型号的鼠标，用户可能一台叫「主力」一台叫「备用」，
+        /// 按型号存会让两台共用同一个备注。
+        ///
+        /// Identity 可能是降级形式（`model:razer`），此时备注对整个型号生效 ——
+        /// 这是可以接受的：既然分不出实例，备注也分不出来才合理。
+        /// </summary>
+        [JsonPropertyName("device_nicknames")]
+        public Dictionary<string, string> DeviceNicknames { get; set; } = new();
+
+        /// <summary>取备注；没有则返回空串</summary>
+        public string GetNickname(string identity)
+        {
+            if (string.IsNullOrEmpty(identity)) return "";
+            return DeviceNicknames.TryGetValue(identity, out string? name)
+                ? (name ?? "")
+                : "";
+        }
+
+        // ---------------------------------------------------------- 通道别名
+        /// <summary>
+        /// 「备选通道身份 → 主身份」的映射。
+        ///
+        /// 场景：耳机用蓝牙时身份是 `bt:44:5E:CD:40:7C:2A`，
+        /// 切到 2.4G 后是 `hid:1532:0555:&lt;接收器序列&gt;`。
+        /// 不收敛的话，用户切个连接方式就发现备注没了、历史断了。
+        ///
+        /// 收敛规则：同一**型号槽位**（HistoryKey）第一次成功识别时记下
+        /// 那个身份当主身份；之后该槽位报上来的其它身份都写进这张表，
+        /// 指回主身份。
+        ///
+        /// 为什么按槽位而不是按设备：程序无法从协议层得知「蓝牙那个 MAC
+        /// 与这个 2.4G 接收器是同一台耳机」。但一个槽位同时只服务一台
+        /// 设备（同型号多台才需要多实例，那是另一个改造），所以
+        /// 「同一槽位 = 同一台」这个近似是安全且可预期的。
+        /// </summary>
+        [JsonPropertyName("channel_aliases")]
+        public Dictionary<string, string> ChannelAliases { get; set; } = new();
+
+        /// <summary>
+        /// 把某槽位报上来的身份收敛成主身份。
+        ///
+        /// 第一次调用会把这个身份登记为主身份；之后再来的不同身份
+        /// 会被记进别名表并返回主身份。
+        /// </summary>
+        public string ResolveChannelIdentity(string historyKey, string reported)
+        {
+            if (string.IsNullOrEmpty(historyKey) || string.IsNullOrEmpty(reported))
+            {
+                return reported ?? "";
+            }
+
+            string primaryKey = "slot:" + historyKey.ToLowerInvariant();
+            if (!ChannelAliases.TryGetValue(primaryKey, out string? primary)
+                || string.IsNullOrEmpty(primary))
+            {
+                // 首次：这个身份就是主身份
+                ChannelAliases[primaryKey] = reported;
+                return reported;
+            }
+
+            if (string.Equals(primary, reported, StringComparison.Ordinal))
+            {
+                return primary;
+            }
+
+            // 不同身份：登记别名，但仍返回主身份，保证备注/历史连续
+            ChannelAliases[reported] = primary;
+            return primary;
+        }
+
+        /// <summary>查别名：如果 reported 是某个主身份的别名，返回它</summary>
+        public string LookupAlias(string reported)
+        {
+            if (string.IsNullOrEmpty(reported)) return "";
+            return ChannelAliases.TryGetValue(reported, out string? primary)
+                && !string.IsNullOrEmpty(primary)
+                ? primary
+                : "";
+        }
+
+        /// <summary>备注的长度上限（脱离 UI 也不该无限长）</summary>
+        public const int NicknameMaxLength = 24;
+
+        /// <summary>设置备注。空值表示清除。返回 true 表示真的变了。</summary>
+        public bool SetNickname(string identity, string? nickname)
+        {
+            if (string.IsNullOrEmpty(identity)) return false;
+
+            // 这里必须自己截断，不能指望 Sanitize()：
+            // Sanitize 只在「读配置」时调用，用户正在输入时不会经过它，
+            // 否则要重启才生效 —— 那就成了「输入框里显示 100 字、
+            // 实际只存 24 字」的诡异状态。
+            string clean = (nickname ?? "").Trim();
+            if (clean.Length > NicknameMaxLength)
+            {
+                clean = clean.Substring(0, NicknameMaxLength).Trim();
+            }
+
+            string current = GetNickname(identity);
+            if (string.Equals(current, clean, StringComparison.Ordinal)) return false;
+
+            if (clean.Length == 0) DeviceNicknames.Remove(identity);
+            else DeviceNicknames[identity] = clean;
+            return true;
+        }
+
         /// <summary>某台设备是否被用户关闭了监控</summary>
         public bool IsDeviceEnabled(string historyKey)
         {
@@ -275,6 +386,37 @@ namespace PeripheralBattery.Services
             ChartStyle = ClampChartStyle(ChartStyle);
             ChartRangeHours = ClampChartRange(ChartRangeHours);
             MaxCardDevices = ClampMaxCardDevices(MaxCardDevices);
+
+            // 别名表：清理空键空值
+            ChannelAliases ??= new Dictionary<string, string>();
+            foreach (var key in ChannelAliases.Keys.ToList())
+            {
+                if (string.IsNullOrWhiteSpace(key)
+                    || string.IsNullOrWhiteSpace(ChannelAliases[key]))
+                {
+                    ChannelAliases.Remove(key);
+                }
+            }
+
+            // 备注表同样要清理：空键、空值、过长
+            DeviceNicknames ??= new Dictionary<string, string>();
+            foreach (var key in DeviceNicknames.Keys.ToList())
+            {
+                string value = DeviceNicknames[key];
+                if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                {
+                    DeviceNicknames.Remove(key);
+                    continue;
+                }
+                // 托盘提示只有 63 字符，备注留太长会把别的行挤掉。
+                // 与 SetNickname 共用同一个上限常量，避免两处不同步。
+                string trimmed = value.Trim();
+                if (trimmed.Length > NicknameMaxLength)
+                {
+                    trimmed = trimmed.Substring(0, NicknameMaxLength).Trim();
+                }
+                DeviceNicknames[key] = trimmed;
+            }
 
             // 手改配置可能留下空串或重复项，会导致「同一条被关两次」这类怪相
             DisabledDevices ??= new List<string>();

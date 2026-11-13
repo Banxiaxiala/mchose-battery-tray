@@ -790,9 +790,11 @@ namespace PeripheralBattery.UI
             Grid.SetColumn(label, 0);
             head.Children.Add(label);
 
-            if (!string.IsNullOrEmpty(reading.Name))
+            // 备注优先；有备注时把型号作为副标题一起显示，方便辨认
+            string headName = reading.DisplayName;
+            if (headName.Length > 0)
             {
-                var model = MakeText(reading.Name, 11, FaintBrush());
+                var model = MakeText(headName, 11, FaintBrush());
                 model.Margin = new Thickness(7, 0, 0, 0);
                 Grid.SetColumn(model, 1);
                 head.Children.Add(model);

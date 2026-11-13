@@ -180,6 +180,21 @@ namespace PeripheralBattery.Hardware
         /// <summary>补丁新增的“读电量”。原厂此号越界。</summary>
         public const byte ViaCmdGetBattery = 0x14;
 
+        // ---- VIA 族的第二种布局（高斯 GS3108T-PRO 等）----
+        //
+        // 同样是 FF60/0x61、同样 33 字节（1B report id + 32B 载荷），
+        // 但命令号与载荷布局不同：
+        //
+        //   请求  00 20 01 00 … 00 21      ← payload[0]=0x20, [1]=1, [31]=0x21
+        //   应答  00 20 01 00 <bat> …      ← 回显 0x20，电量在 payload[3]
+        //
+        // 与维咖的差别只有两处：命令号（0x20 vs 0x14）、电量偏移（3 vs 4）。
+        // 所以这**不是两套协议**，而是同一个「VIA 33 字节命令」的两个变体 ——
+        // 把差异抽成参数，读取器就不用按型号分支了。
+        public const byte ViaCmdGetBatteryGeneric = 0x20;
+        /// <summary>通用布局里电量在载荷的偏移</summary>
+        public const int ViaGenericBatteryOffset = 3;
+
         /// <summary>连接状态（来自 md_info.state）</summary>
         private static readonly Dictionary<int, string> ViaStates = new()
         {
@@ -565,25 +580,43 @@ namespace PeripheralBattery.Hardware
         /// </summary>
         public static ViaBattery ParseViaBattery(byte[]? payload, out string reason)
         {
+            return ParseViaBattery(payload, ViaCmdGetBattery, 4, out reason);
+        }
+
+        /// <summary>
+        /// 同上，但支持指定命令号与电量偏移。
+        ///
+        /// 两个变体的差别只有这两处参数，其余判定（0xFF = 没补丁、
+        /// state 0 = 有线、percent > 100 = 不可信）**必须完全一致** ——
+        /// 那些判据是踩过坑得出的，不能因为换了个型号就放松。
+        /// </summary>
+        public static ViaBattery ParseViaBattery(byte[]? payload, byte expectedCmd,
+            int percentOffset, out string reason)
+        {
             reason = "";
             if (payload == null || payload.Length < 8)
             {
                 reason = "应答太短";
                 return ViaBattery.Unsupported;
             }
-            if (payload[0] != ViaCmdGetBattery)
+            if (percentOffset < 0 || percentOffset + 4 > payload.Length)
+            {
+                reason = "载荷太短，读不到电量字段";
+                return ViaBattery.Unsupported;
+            }
+            if (payload[0] != expectedCmd)
             {
                 // 0xFF = 原厂固件（没有电量补丁）；其它值 = 接口选错/协议不对
                 reason = payload[0] == 0xFF
-                    ? "键盘固件没有电量补丁（发 cmd 20 回 0xFF）"
-                    : $"命令回显不是 0x14，而是 0x{payload[0]:X2}";
+                    ? $"固件没有电量补丁（发 cmd 0x{expectedCmd:X2} 回 0xFF）"
+                    : $"命令回显不是 0x{expectedCmd:X2}，而是 0x{payload[0]:X2}";
                 return ViaBattery.Unsupported;
             }
 
-            int percent = payload[4];
-            int state = payload[5];
-            int version = payload[6];
-            int indicator = payload[7];
+            int percent = payload[percentOffset];
+            int state = payload[percentOffset + 1];
+            int version = payload[percentOffset + 2];
+            int indicator = payload[percentOffset + 3];
 
             if (state == 0)
             {

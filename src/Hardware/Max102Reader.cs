@@ -25,14 +25,59 @@ using PeripheralBattery.Models;
 
 namespace PeripheralBattery.Hardware
 {
-    /// <summary>维咖 MAX102 键盘：2.4G VIA 优先，否则回落蓝牙系统属性</summary>
+    /// <summary>
+    /// VIA 族键盘（维咖 MAX102 / 高斯 GS3108T-PRO 等）：
+    /// 2.4G VIA 优先，否则回落蓝牙系统属性。
+    ///
+    /// 「一族一个 Reader + 参数化」而不是「一个型号一个 Reader」：
+    /// 这些键盘共用 0xFF60/0x61、33 字节报文，差别只有命令号与电量偏移。
+    /// </summary>
     public sealed class Max102Reader
     {
-        /// <summary>蓝牙通道的设备名前缀。键位在 BT1/BT2/BT3 之间切换，都要认。</summary>
-        private const string BluetoothNamePrefix = "MAX102";
-
         /// <summary>cmd 20 的超时。实测应答约 5–30ms，给 400ms 足够覆盖唤醒。</summary>
         private const double QueryTimeout = 0.4;
+
+        // ---------------------------------------------------------- 可配置项
+        //
+        // 为什么做成可配置：高斯 GS3108T-PRO 等键盘与维咖 MAX102 **同一个端点**
+        // （0xFF60 / 0x61，33 字节），差别只有命令号与电量偏移。
+        // 把它们做成两条独立的 Reader 会重复 90% 代码，还容易改一处漏一处。
+
+        /// <summary>HID 厂商号；0 = 不限制（由协议链上层按通道过滤）</summary>
+        public int VendorId { get; }
+
+        /// <summary>HID 产品号；0 = 不限制</summary>
+        public int ProductId { get; }
+
+        /// <summary>读电量的命令号</summary>
+        public byte BatteryCommand { get; }
+
+        /// <summary>电量字段在 32 字节载荷里的偏移</summary>
+        public int BatteryOffset { get; }
+
+        /// <summary>蓝牙通道的设备名前缀；空串表示不支持蓝牙通道</summary>
+        public string BluetoothNamePrefix { get; }
+
+        /// <summary>卡片上显示的型号名</summary>
+        public string ModelName { get; }
+
+        /// <summary>维咖 MAX102 的默认配置（cmd 0x14，电量在偏移 4）</summary>
+        public Max102Reader()
+            : this(Protocols.ViaVendorMax102, Protocols.ViaProductMax102,
+                   Protocols.ViaCmdGetBattery, 4, "MAX102", "维咖 MAX102")
+        {
+        }
+
+        public Max102Reader(int vendorId, int productId, byte batteryCommand,
+            int batteryOffset, string bluetoothNamePrefix, string modelName)
+        {
+            VendorId = vendorId;
+            ProductId = productId;
+            BatteryCommand = batteryCommand;
+            BatteryOffset = batteryOffset;
+            BluetoothNamePrefix = bluetoothNamePrefix;
+            ModelName = modelName;
+        }
 
         public (Reading? reading, string error) Read()
         {
@@ -91,15 +136,18 @@ namespace PeripheralBattery.Hardware
             List<HidInterface> interfaces;
             try
             {
-                interfaces = HidEnumerator.Enumerate(Protocols.ViaVendorMax102,
-                    Protocols.ViaProductMax102);
+                interfaces = VendorId != 0
+                    ? (ProductId != 0
+                        ? HidEnumerator.Enumerate(VendorId, ProductId)
+                        : HidEnumerator.Enumerate(VendorId))
+                    : HidEnumerator.Enumerate();
             }
             catch (Exception exc)
             {
-                return (null, "枚举维咖 HID 接口失败：" + exc.Message);
+                return (null, "枚举 HID 接口失败：" + exc.Message);
             }
 
-            Tracer.Section("维咖 MAX102 HID 接口");
+            Tracer.Section(ModelName + " HID 接口");
             foreach (var iface in interfaces) Tracer.Note(iface.ToString());
 
             // 只认 VIA 的厂商集合 0xFF60/0x61：键盘还有键盘/鼠标/多媒体等集合，
@@ -111,7 +159,7 @@ namespace PeripheralBattery.Hardware
 
             if (via.Count == 0)
             {
-                return (null, "没有找到维咖 VIA 接口（键盘未插线/未连 2.4G）");
+                return (null, "没有找到 " + ModelName + " 的 VIA 接口（未插线/未连 2.4G）");
             }
 
             // 2.4G 的 product_string 带 “2.4G”，有线是 “MAX102”；
@@ -136,20 +184,21 @@ namespace PeripheralBattery.Hardware
                 }
                 catch (Exception exc)
                 {
-                    lastError = "打开维咖 VIA 接口失败：" + exc.Message;
+                    lastError = "打开 " + ModelName + " 的 VIA 接口失败：" + exc.Message;
                     continue;
                 }
 
                 try
                 {
-                    byte[]? reply = Query(device, Protocols.ViaCmdGetBattery);
+                    byte[]? reply = Query(device, BatteryCommand);
                     if (reply == null)
                     {
-                        lastError = "键盘没有应答 cmd 20（可能正在休眠）";
+                        lastError = ModelName + " 没有应答读电量命令（可能正在休眠）";
                         continue;
                     }
 
-                    var parsed = Protocols.ParseViaBattery(reply, out string reason);
+                    var parsed = Protocols.ParseViaBattery(reply, BatteryCommand,
+                        BatteryOffset, out string reason);
                     Tracer.Note($"cmd 20 → kind={parsed.Kind} bat={parsed.Percent} "
                               + $"state={parsed.State} ver={parsed.ModuleVersion} {reason}");
 
@@ -166,7 +215,11 @@ namespace PeripheralBattery.Hardware
                         continue;
                     }
 
-                    string name = Protocols.Max102ModelName(iface.Product);
+                    // 用户配置的型号名优先：product_string 在不同批次的固件里
+                    // 可能是 "MAX102-2.4G"、"GS3108T-PRO" 甚至空串
+                    string name = ModelName.Length > 0
+                        ? ModelName
+                        : Protocols.Max102ModelName(iface.Product);
                     return (new Reading
                     {
                         Name = name,
@@ -202,21 +255,21 @@ namespace PeripheralBattery.Hardware
         /// 这里必须校验命令号，因为键盘会主动推电量变化包（未订阅时也可能
         /// 混进来），把推送当应答会读到错误的数值。
         /// </summary>
-        private static byte[]? Query(HidDevice device, byte cmd)
+        private byte[]? Query(HidDevice device, byte cmd)
         {
             byte[] request = Protocols.BuildViaRequest(cmd);
-            Tracer.Frame($"[维咖 cmd=0x{cmd:X2}] 发 →", request);
+            Tracer.Frame($"[{ModelName} cmd=0x{cmd:X2}] 发 →", request);
             try
             {
                 if (device.Write(request, 0.3) < 0)
                 {
-                    Tracer.Note("[维咖] 写入失败");
+                    Tracer.Note("[" + ModelName + "] 写入失败");
                     return null;
                 }
             }
             catch (Exception exc)
             {
-                Tracer.Note("[维咖] 写入异常：" + exc.Message);
+                Tracer.Note("[" + ModelName + "] 写入异常：" + exc.Message);
                 return null;
             }
 
@@ -237,7 +290,7 @@ namespace PeripheralBattery.Hardware
                 }
                 Tracer.Frame("收 ← （命令号不匹配，丢弃）", frame);
             }
-            Tracer.Note($"[维咖 cmd=0x{cmd:X2}] 超时");
+            Tracer.Note($"[{ModelName} cmd=0x{cmd:X2}] 超时");
             return null;
         }
 
@@ -250,6 +303,10 @@ namespace PeripheralBattery.Hardware
         /// </summary>
         private (Reading? reading, string error) ReadBluetooth()
         {
+            if (BluetoothNamePrefix.Length == 0)
+            {
+                return (null, ModelName + " 未配置蓝牙通道");
+            }
             BluetoothBatteryInfo? info;
             try
             {
@@ -262,7 +319,7 @@ namespace PeripheralBattery.Hardware
 
             if (info == null)
             {
-                return (null, "没有找到蓝牙通道的 MAX102（系统未记录其电量）");
+                return (null, "没有找到蓝牙通道的 " + ModelName + "（系统未记录其电量）");
             }
             if (!info.Percent.HasValue)
             {
@@ -279,7 +336,7 @@ namespace PeripheralBattery.Hardware
 
             return (new Reading
             {
-                Name = "维咖 MAX102",
+                Name = ModelName.Length > 0 ? ModelName : "维咖 MAX102",
                 Percent = info.Percent,
                 Charging = state.Charging,  // 系统属性没有充电状态，恒 false
                 Connected = state.Connected,

@@ -38,7 +38,11 @@ namespace PeripheralBattery.Hardware
             // 每次绑定只创建一次，不要放进读函数里 —— 那会让缓存失效。
             var logi = new LogitechReader();
             var razer = new RazerReader();
-            var via = new Max102Reader();
+
+            // VIA 族的 Reader 需要按设备参数构造（命令号 / 电量偏移 / 蓝牙前缀），
+            // 所以在这里按定义里**第一条 VIA 通道**创建一次并复用。
+            // 复用很重要：Reader 内部状态（如超时时钟）不该每轮重建。
+            var via = BuildViaReader(definition);
 
             var channels = definition.Channels?.ToList() ?? new List<ProtocolChannel>();
 
@@ -70,6 +74,55 @@ namespace PeripheralBattery.Hardware
 
                 return (null, Summarize(definition, failures));
             };
+        }
+
+        /// <summary>
+        /// 为设备构造 VIA 族的 Reader。
+        ///
+        /// 用定义里第一条 VIA 通道的参数；没有 VIA 通道时返回一个
+        /// 永远读不到的占位实例（不会被调用，因为链里没有 ViaQmk）。
+        /// </summary>
+        private static Max102Reader BuildViaReader(DeviceDefinition definition)
+        {
+            foreach (var channel in definition.Channels)
+            {
+                if (channel.Kind != ProtocolKind.ViaQmk) continue;
+
+                byte command = channel.BatteryCommand != 0
+                    ? channel.BatteryCommand
+                    : Protocols.ViaCmdGetBattery;
+                int offset = channel.BatteryOffset > 0
+                    ? channel.BatteryOffset
+                    : 4;
+
+                // 蓝牙前缀从**蓝牙通道**取，不从 VIA 通道取 ——
+                // 两者描述的是不同通道，混用会让「VIA 有前缀但没蓝牙」
+                // 这类配置出现意外行为。
+                string bluetoothPrefix = "";
+                foreach (var other in definition.Channels)
+                {
+                    if (other.Kind == ProtocolKind.BluetoothProperty)
+                    {
+                        bluetoothPrefix = other.NamePrefix;
+                        break;
+                    }
+                }
+
+                string model = definition.Model;
+                foreach (var other in definition.Channels)
+                {
+                    if (other.Kind == ProtocolKind.ViaQmk && other.Model.Length > 0)
+                    {
+                        model = other.Model;
+                        break;
+                    }
+                }
+
+                return new Max102Reader(channel.VendorId, channel.ProductId,
+                    command, offset, bluetoothPrefix, model);
+            }
+
+            return new Max102Reader();
         }
 
         /// <summary>按通道类型分派到对应的 Reader</summary>

@@ -418,6 +418,117 @@ namespace PeripheralBattery.Tests
                 Protocols.RazerModelNameFromBluetooth("Razer"), "只留品牌名时也要兜底");
         }
 
+        // ============================================================ VIA 族第二个变体
+        //
+        // 高斯 GS3108T-PRO 与维咖 MAX102 共用端点（0xFF60/0x61、33 字节），
+        // 但命令号与电量偏移不同。这里锁住「差异只有这两个参数、
+        // 其余判定完全一致」—— 否则移植时会悄悄放松那些踩过坑的判据。
+        //
+        // 帧来自 FerrisPulse 的 GanssDeviceHelper（静态分析 + 实机抓包）：
+        //   请求  00 20 01 00 … 00 21
+        //   应答  00 20 01 00 <bat> …
+
+        [Test]
+        public static void ViaGenericLayoutParsesBattery()
+        {
+            // 载荷是**剥掉 report id 后**的 32 字节
+            var reply = new byte[32];
+            reply[0] = 0x20;   // 命令回显
+            reply[1] = 0x01;
+            reply[2] = 0x00;
+            reply[3] = 87;     // 电量在偏移 3（维咖是 4）
+            reply[4] = 2;      // state = CONNECTED（偏移 4，不是 3 之后就没有了）
+            reply[5] = 1;      // 模块版本
+            reply[6] = 0x01;   // 指示灯
+
+            var parsed = Protocols.ParseViaBattery(reply,
+                Protocols.ViaCmdGetBatteryGeneric,
+                Protocols.ViaGenericBatteryOffset, out string reason);
+
+            Assert.Equal(ViaBatteryKind.Valid, parsed.Kind, "应解析成功：" + reason);
+            Assert.Equal(87, parsed.Percent, "电量取偏移 3");
+            Assert.Equal(2, parsed.State, "状态取偏移 4");
+        }
+
+        [Test]
+        public static void ViaGenericLayoutRejectsWrongCommand()
+        {
+            // 用维咖的 0x14 去解析高斯的应答 → 必须判失败，不能当成电量
+            var reply = new byte[32];
+            reply[0] = 0x20;
+            reply[3] = 87;
+
+            var parsed = Protocols.ParseViaBattery(reply,
+                Protocols.ViaCmdGetBattery, 4, out string reason);
+
+            Assert.Equal(ViaBatteryKind.Unsupported, parsed.Kind, "命令号不符应拒绝");
+            Assert.True(reason.Length > 0, "要说明原因");
+        }
+
+        [Test]
+        public static void ViaGenericLayoutKeepsStockFirmwareJudgement()
+        {
+            // 0xFF = 原厂固件没补丁。这条判据必须两个变体一致 ——
+            // 判成 0% 会让用户看到键盘永远没电并反复收到低电量提醒。
+            var reply = new byte[32];
+            reply[0] = 0xFF;
+
+            var parsed = Protocols.ParseViaBattery(reply,
+                Protocols.ViaCmdGetBatteryGeneric,
+                Protocols.ViaGenericBatteryOffset, out string reason);
+
+            Assert.Equal(ViaBatteryKind.Unsupported, parsed.Kind, "0xFF 一律不支持");
+            Assert.True(reason.Contains("补丁"), "文案要提到补丁：" + reason);
+        }
+
+        [Test]
+        public static void ViaGenericLayoutKeepsWiredJudgement()
+        {
+            // state == 0 → USB 有线，无线模块不工作。同样两个变体一致。
+            var reply = new byte[32];
+            reply[0] = 0x20;
+            reply[1] = 0x01;
+            reply[2] = 0x00;
+            reply[3] = 0;      // 电量 0
+            reply[4] = 0;      // state 0
+
+            var parsed = Protocols.ParseViaBattery(reply,
+                Protocols.ViaCmdGetBatteryGeneric,
+                Protocols.ViaGenericBatteryOffset, out _);
+
+            Assert.Equal(ViaBatteryKind.Wired, parsed.Kind, "state 0 判有线");
+        }
+
+        [Test]
+        public static void ViaGenericLayoutRejectsOutOfRangePercent()
+        {
+            var reply = new byte[32];
+            reply[0] = 0x20;
+            reply[3] = 200;    // > 100 不可信
+            reply[4] = 2;      // state CONNECTED
+
+            var parsed = Protocols.ParseViaBattery(reply,
+                Protocols.ViaCmdGetBatteryGeneric,
+                Protocols.ViaGenericBatteryOffset, out _);
+
+            Assert.Equal(ViaBatteryKind.Unsupported, parsed.Kind, "电量 > 100 应拒绝");
+        }
+
+        [Test]
+        public static void ViaDefaultOverloadStillTargetsMax102()
+        {
+            // 无参重载必须保持维咖的语义（cmd 0x14，偏移 4），
+            // 否则加参数化会把老型号改坏。
+            var reply = new byte[32];
+            reply[0] = 0x14;
+            reply[4] = 100;
+            reply[5] = 2;
+
+            var parsed = Protocols.ParseViaBattery(reply, out string reason);
+            Assert.Equal(ViaBatteryKind.Valid, parsed.Kind, "默认重载走维咖布局：" + reason);
+            Assert.Equal(100, parsed.Percent, "电量取偏移 4");
+        }
+
         // ============================================================ 雷蛇在线判定
         //
         // 用户报的 bug：「耳机有时候会显示掉线，实际上没掉线」。

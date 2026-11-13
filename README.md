@@ -9,7 +9,7 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
 [![Size](https://img.shields.io/badge/single%20exe-425%20KB-blue?style=flat-square)](#性能)
-[![Tests](https://img.shields.io/badge/tests-127%20passed-success?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/tests-136%20passed-success?style=flat-square)](#测试)
 
 <img src="assets/screens/line-24h.png" width="300" alt="外设电量卡片 —— 折线图视图">
 
@@ -267,11 +267,17 @@ PID 来自 [OpenRazer](https://github.com/openrazer/openrazer) 的公开设备�
 </details>
 
 <details>
-<summary><b>QMK / VIA 键盘</b> —— 需要 `cmd 20` 电量补丁（展开）</summary>
+<summary><b>QMK / VIA 键盘</b> —— 两个已知布局（展开）</summary>
 
-`cmd 20 (0x14)` 是**补丁命令**，不是 QMK 标准功能。原厂固件回 `0xFF`，
-本程序会如实报「固件没有电量补丁」，绝不显示 0%。补丁参考
-[weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re)。
+同一端点 `0xFF60/0x61`、同样 33 字节，差别只有命令号与电量偏移：
+
+| 布局 | 命令 | 电量偏移 | 型号 | 性质 |
+|---|:---:|:---:|---|---|
+| A | `0x14` | `[4]` | 维咖 MAX102 | 补丁命令，原厂回 `0xFF` |
+| B | `0x20` | `[3]` | 高斯 GS3108T-PRO | 原厂命令，默认不启用 |
+
+补丁参考 [weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re)。
+原厂固件回 `0xFF` 时本程序如实报「固件没有电量补丁」，绝不显示 0%。
 </details>
 
 ### 通用蓝牙（🔵）
@@ -423,7 +429,7 @@ dotnet run --project src\PeripheralBattery.csproj -- --preview card.png line 168
 dotnet run --project tests\PeripheralBattery.Tests.csproj
 ```
 
-**127 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
+**136 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
 `tests/Harness.cs` 里 60 行手写运行器就够，`Main` 返回非 0 表示失败。
 
 覆盖面：

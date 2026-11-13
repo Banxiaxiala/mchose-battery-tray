@@ -56,6 +56,18 @@ namespace PeripheralBattery.Hardware
         public string NamePrefix { get; init; } = "";
 
         /// <summary>
+        /// VIA 族：读电量的命令号。0 = 用该协议的默认值。
+        ///
+        /// 维咖 MAX102 是补丁命令 0x14（载荷偏移 4）；
+        /// 高斯 GS3108T-PRO 是 0x20（载荷偏移 3）。
+        /// 两者端点相同、报文长度相同，只有这两处不同。
+        /// </summary>
+        public byte BatteryCommand { get; init; }
+
+        /// <summary>VIA 族：电量字段在 32 字节载荷里的偏移；0 表示用默认</summary>
+        public int BatteryOffset { get; init; }
+
+        /// <summary>
         /// 蓝牙通道是否只扫经典蓝牙（BTHENUM）的音频服务节点。
         ///
         /// 耳机必须为 true：它的电量挂在经典蓝牙的音频服务子节点上，
@@ -207,7 +219,57 @@ namespace PeripheralBattery.Hardware
                         },
                     },
                 },
+                // 高斯键盘：默认关闭（见定义里的 EnabledByDefault），
+                // 用户装了就在设置里打开。
+                GanssGs3108(),
             };
+
+        /// <summary>
+        /// 高斯 GS3108T-PRO 三模键盘。
+        ///
+        /// 与维咖 MAX102 同一个 VIA 端点（0xFF60/0x61、33 字节），
+        /// 但用的是原厂命令 0x20（不是维咖的补丁命令 0x14），
+        /// 电量在载荷偏移 3。
+        ///
+        /// 协议依据：FerrisPulse 的 GanssDeviceHelper —— 那里对
+        /// DeviceDriver.exe 做了静态分析并实机抓包验证过帧格式
+        /// （端点 0xFF60/0x61，请求 00020100…0021，应答电量在载荷 [3]）。
+        /// 本仓库**未在真机上验证过这台键盘**，所以等级是 🟡。
+        /// </summary>
+        private static DeviceDefinition GanssGs3108()
+        {
+            return new DeviceDefinition
+            {
+                Key = "ganss-gs3108t",
+                // Label 是卡片/提示上的标题，必须与维咖区分开 ——
+                // 两台都叫「键盘」时，用户看到「键盘 读取失败」根本不知道是哪台。
+                Label = "键盘2",
+                Model = "高斯 GS3108T-PRO",
+                EnabledByDefault = false,   // 不是所有用户都有这台，默认不占环
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.ViaQmk,
+                        // 注意 VID 是 0x05AC（Apple 的厂商号），不是高斯自己的。
+                        // 这是键盘固件自报的值 —— 抓包时就是这么枚举出来的，
+                        // 不能「纠正」成看起来更合理的厂商号，否则枚举不到。
+                        VendorId = 0x05AC,
+                        ProductId = 0x024F,
+                        BatteryCommand = Protocols.ViaCmdGetBatteryGeneric,
+                        BatteryOffset = Protocols.ViaGenericBatteryOffset,
+                        Model = "高斯 GS3108T-PRO",
+                    },
+                    new()
+                    {
+                        Kind = ProtocolKind.BluetoothProperty,
+                        NamePrefix = "GS3108",
+                        ClassicBluetoothOnly = false,
+                        Model = "高斯 GS3108T-PRO",
+                    },
+                },
+            };
+        }
 
         /// <summary>按 Key 找内置定义；找不到返回 null</summary>
         public static DeviceDefinition? FindBuiltIn(string key)

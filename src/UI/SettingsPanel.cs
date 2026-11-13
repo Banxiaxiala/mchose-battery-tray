@@ -226,7 +226,10 @@ namespace PeripheralBattery.UI
             _heightSlider.ValueChanged += (_, e) =>
             {
                 _heightValue.Text = (int)e.NewValue + " px";
-                if (_suppressEvents || _autoHeight.IsChecked == true) return;
+                // _autoHeight 在构造顺序上晚于本 lambda 的注册，
+                // 理论上仍可能为 null（比如事件在赋值前被触发），
+                // 所以用空条件访问而不是直接解引用。
+                if (_suppressEvents || _autoHeight?.IsChecked == true) return;
                 _settings.CardHeight = Settings.ClampCardHeight(e.NewValue);
                 Persist();
             };

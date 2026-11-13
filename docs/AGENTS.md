@@ -244,7 +244,7 @@
 
 1. 改 `src/PeripheralBattery.csproj` 的 `<Version>`
 2. 跑 `build.bat`（会自动杀进程 → 跑测试 → 编译 → 发布）
-3. 测试必须 **109 项全 PASS**
+3. 测试必须 **127 项全 PASS**
 4. 跑 `dist\外设电量.exe --probe`，两台设备都要读到
 5. 手动起一次托盘，确认左键弹卡片、齿轮开设置、点别处能收起
 

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="340" viewBox="0 0 900 340" font-family="'Microsoft YaHei UI','PingFang SC','Hiragino Sans GB','Segoe UI',sans-serif">
+<rect width="900" height="340" fill="#0d1117"/>
+<text x="26" y="35.94" font-size="17" fill="#e6edf3" text-anchor="start" font-weight="600">历史数据：三层聚合</text>
+<text x="26" y="55.02" font-size="11" fill="#8b949e" text-anchor="start">看得越久，分辨率越粗 —— 用 200 KB 换来 24 个月的趋势</text>
+<rect x="26" y="82" width="848" height="66" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="8"/>
+<rect x="26" y="90" width="4" height="50" fill="#2ea043" rx="2"/>
+<text x="44" y="102.66" font-size="13" fill="#e6edf3" text-anchor="start" font-weight="600">原始样本</text>
+<text x="190" y="103.02" font-size="11" fill="#8b949e" text-anchor="start">保留 48 小时</text>
+<text x="300" y="103.02" font-size="11" fill="#8b949e" text-anchor="start">20~30 秒 / 条</text>
+<text x="470" y="103.02" font-size="11" fill="#8b949e" text-anchor="start">~150 KB</text>
+<text x="560" y="103.02" font-size="11" fill="#2ea043" text-anchor="start">→ 折线与 24h 柱状图</text>
+<rect x="44" y="122" width="418" height="10" fill="#2ea043" rx="4"/>
+<rect x="26" y="160" width="848" height="66" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="8"/>
+<rect x="26" y="168" width="4" height="50" fill="#4a90d9" rx="2"/>
+<text x="44" y="180.66" font-size="13" fill="#e6edf3" text-anchor="start" font-weight="600">小时聚合</text>
+<text x="190" y="181.02" font-size="11" fill="#8b949e" text-anchor="start">保留 30 天</text>
+<text x="300" y="181.02" font-size="11" fill="#8b949e" text-anchor="start">1 小时 / 条</text>
+<text x="470" y="181.02" font-size="11" fill="#8b949e" text-anchor="start">~30 KB</text>
+<text x="560" y="181.02" font-size="11" fill="#4a90d9" text-anchor="start">→ 7 天 / 30 天窗口</text>
+<rect x="44" y="200" width="243.2" height="10" fill="#4a90d9" rx="4"/>
+<rect x="26" y="238" width="848" height="66" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="8"/>
+<rect x="26" y="246" width="4" height="50" fill="#7a5bd6" rx="2"/>
+<text x="44" y="258.66" font-size="13" fill="#e6edf3" text-anchor="start" font-weight="600">天聚合</text>
+<text x="190" y="259.02" font-size="11" fill="#8b949e" text-anchor="start">保留 24 个月</text>
+<text x="300" y="259.02" font-size="11" fill="#8b949e" text-anchor="start">1 天 / 条</text>
+<text x="470" y="259.02" font-size="11" fill="#8b949e" text-anchor="start">~30 KB</text>
+<text x="560" y="259.02" font-size="11" fill="#7a5bd6" text-anchor="start">→ 1 年 / 2 年窗口</text>
+<rect x="44" y="278" width="121.6" height="10" fill="#7a5bd6" rx="4"/>
+<text x="26" y="325.02" font-size="11" fill="#6e7681" text-anchor="start">折叠必须发生在裁剪之前  ·  同一桶按样本数加权合并  ·  永远保留最新一条</text>
+</svg>

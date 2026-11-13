@@ -683,5 +683,92 @@ namespace PeripheralBattery.Tests
             Assert.Equal("耳机  --", TooltipText.CompactOf("耳机", null, true, false),
                 "无读数");
         }
+
+        // ============================================================ 设备开关
+        //
+        // 「关闭监控」与「离线」是两件事：
+        //   离线 = 设备没应答，仍会被探测（等它回来）
+        //   关闭 = 用户明确不要了，一次探测都不发、不占环、不写历史
+        // 这里锁住开关的语义与持久化行为。
+
+        [Test]
+        public static void DeviceEnabledByDefault()
+        {
+            var settings = new Settings();
+            Assert.True(settings.IsDeviceEnabled("logitech"), "默认全开");
+            Assert.True(settings.IsDeviceEnabled("razer"), "默认全开");
+        }
+
+        [Test]
+        public static void DeviceToggleIsIdempotent()
+        {
+            var settings = new Settings();
+            // 第一次关 → 真的变了
+            Assert.True(settings.SetDeviceEnabled("razer", false), "首次关闭应返回 true");
+            Assert.False(settings.IsDeviceEnabled("razer"), "已关闭");
+            // 再关一次 → 没变化，调用方据此跳过重绘
+            Assert.False(settings.SetDeviceEnabled("razer", false), "重复关闭应返回 false");
+
+            Assert.True(settings.SetDeviceEnabled("razer", true), "重新开启应返回 true");
+            Assert.True(settings.IsDeviceEnabled("razer"), "已开启");
+            Assert.Equal(0, settings.DisabledDevices.Count, "启用后要从列表里移除");
+        }
+
+        [Test]
+        public static void DeviceToggleIsCaseInsensitive()
+        {
+            var settings = new Settings();
+            settings.SetDeviceEnabled("Max102", false);
+            Assert.False(settings.IsDeviceEnabled("max102"), "key 比较不区分大小写");
+            Assert.False(settings.IsDeviceEnabled("MAX102"), "同上");
+        }
+
+        [Test]
+        public static void DeviceToggleSurvivesFileRoundTrip()
+        {
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "pbtest_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var settings = new Settings { Interval = 45 };
+                settings.SetDeviceEnabled("razer", false);
+                settings.SetDeviceEnabled("max102", false);
+                settings.SaveTo(dir);
+
+                var reloaded = Settings.LoadFrom(dir);
+                Assert.False(reloaded.IsDeviceEnabled("razer"), "关闭状态要落盘");
+                Assert.False(reloaded.IsDeviceEnabled("max102"), "关闭状态要落盘");
+                Assert.True(reloaded.IsDeviceEnabled("logitech"), "没关的仍在");
+                Assert.Equal(45, reloaded.Interval, "其它设置不受影响");
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
+        }
+
+        [Test]
+        public static void SanitizeCleansDisabledList()
+        {
+            // 手改配置可能留下空串与重复项，会导致「同一条被关两次」这类怪相
+            var settings = new Settings
+            {
+                DisabledDevices = new List<string> { "razer", "", "  ", "RAZER", "max102" },
+            };
+            settings.Sanitize();
+            Assert.Equal(2, settings.DisabledDevices.Count, "去空 + 去重（忽略大小写）");
+            Assert.True(settings.IsDeviceEnabled("logitech"), "没列出来的仍启用");
+            Assert.False(settings.IsDeviceEnabled("max102"), "正常的保留");
+        }
+
+        [Test]
+        public static void NullDisabledListIsTolerated()
+        {
+            // 老版本配置文件没有这个字段 → 反序列化后可能为 null
+            var settings = new Settings { DisabledDevices = null! };
+            settings.Sanitize();
+            Assert.NotNull(settings.DisabledDevices, "Sanitize 要补成空列表");
+            Assert.True(settings.IsDeviceEnabled("razer"), "null 视为全开");
+        }
     }
 }

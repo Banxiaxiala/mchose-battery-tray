@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="330" viewBox="0 0 900 330" font-family="'Microsoft YaHei UI','PingFang SC','Hiragino Sans GB','Segoe UI',sans-serif">
+<rect width="900" height="330" fill="#0d1117"/>
+<text x="26" y="35.94" font-size="17" fill="#e6edf3" text-anchor="start" font-weight="600">一次刷新的数据流</text>
+<text x="26" y="55.02" font-size="11" fill="#8b949e" text-anchor="start">30 秒一次的心跳 · 读不到不覆盖当前值 · 陈旧读数不进历史</text>
+<rect x="26" y="82" width="180" height="92" fill="#161b22" stroke="#db6d28" stroke-width="2" rx="10"/>
+<text x="40" y="104.66" font-size="13" fill="#db6d28" text-anchor="start" font-weight="600">① 采集</text>
+<text x="40" y="129.02" font-size="11" fill="#e6edf3" text-anchor="start">Readers / Protocols</text>
+<text x="40" y="146.02" font-size="11" fill="#8b949e" text-anchor="start">HID 或 PnP 属性</text>
+<line x1="209" y1="128" x2="228" y2="128" stroke="#6e7681" stroke-width="2"/>
+<polygon points="228,128 220,123 220,133" fill="#6e7681"/>
+<rect x="232" y="82" width="190" height="92" fill="#161b22" stroke="#4a90d9" stroke-width="2" rx="10"/>
+<text x="246" y="104.66" font-size="13" fill="#4a90d9" text-anchor="start" font-weight="600">② 判活</text>
+<text x="246" y="129.02" font-size="11" fill="#e6edf3" text-anchor="start">ReadingDebounce</text>
+<text x="246" y="146.02" font-size="11" fill="#8b949e" text-anchor="start">连续 3 次失败才算离线</text>
+<line x1="425" y1="128" x2="444" y2="128" stroke="#6e7681" stroke-width="2"/>
+<polygon points="444,128 436,123 436,133" fill="#6e7681"/>
+<rect x="448" y="82" width="180" height="92" fill="#161b22" stroke="#2ea043" stroke-width="2" rx="10"/>
+<text x="462" y="104.66" font-size="13" fill="#2ea043" text-anchor="start" font-weight="600">③ 入库</text>
+<text x="462" y="129.02" font-size="11" fill="#e6edf3" text-anchor="start">History.Add</text>
+<text x="462" y="146.02" font-size="11" fill="#8b949e" text-anchor="start">跳变过滤 + 三层折叠</text>
+<line x1="631" y1="128" x2="650" y2="128" stroke="#6e7681" stroke-width="2"/>
+<polygon points="650,128 642,123 642,133" fill="#6e7681"/>
+<rect x="654" y="82" width="180" height="92" fill="#161b22" stroke="#7a5bd6" stroke-width="2" rx="10"/>
+<text x="668" y="104.66" font-size="13" fill="#7a5bd6" text-anchor="start" font-weight="600">④ 呈现</text>
+<text x="668" y="129.02" font-size="11" fill="#e6edf3" text-anchor="start">BatteryCard / TrayIcon</text>
+<text x="668" y="146.02" font-size="11" fill="#8b949e" text-anchor="start">图表 · 圆环 · 悬停提示</text>
+<rect x="26" y="206" width="274.67" height="62" fill="#1c1414" stroke="#f05050" stroke-width="1" rx="8"/>
+<polygon points="40,226 45,216 50,226" fill="#ffa0a0"/>
+<text x="41.5" y="223.56" font-size="8" fill="#1c1414" text-anchor="start" font-weight="600">!</text>
+<text x="58" y="225.84" font-size="12" fill="#ffa0a0" text-anchor="start" font-weight="600">读不到 ≠ 0%</text>
+<text x="38" y="246.2" font-size="10" fill="#8b949e" text-anchor="start">Percent 保持 null，绝不拿历史值顶替</text>
+<rect x="312.67" y="206" width="274.67" height="62" fill="#1c1414" stroke="#f05050" stroke-width="1" rx="8"/>
+<polygon points="326.67,226 331.67,216 336.67,226" fill="#ffa0a0"/>
+<text x="328.17" y="223.56" font-size="8" fill="#1c1414" text-anchor="start" font-weight="600">!</text>
+<text x="344.67" y="225.84" font-size="12" fill="#ffa0a0" text-anchor="start" font-weight="600">离线 ≠ 立刻</text>
+<text x="324.67" y="246.2" font-size="10" fill="#8b949e" text-anchor="start">2.4G 空口会丢帧，单帧丢失不判离线</text>
+<rect x="599.33" y="206" width="274.67" height="62" fill="#1c1414" stroke="#f05050" stroke-width="1" rx="8"/>
+<polygon points="613.33,226 618.33,216 623.33,226" fill="#ffa0a0"/>
+<text x="614.83" y="223.56" font-size="8" fill="#1c1414" text-anchor="start" font-weight="600">!</text>
+<text x="631.33" y="225.84" font-size="12" fill="#ffa0a0" text-anchor="start" font-weight="600">陈旧值不入库</text>
+<text x="611.33" y="246.2" font-size="10" fill="#8b949e" text-anchor="start">蓝牙属性在离线后仍保留上次值</text>
+<text x="26" y="317.02" font-size="11" fill="#6e7681" text-anchor="start">三处判据都由脱机断言锁住，改动前先看 docs/AGENTS.md 第 9 节</text>
+</svg>

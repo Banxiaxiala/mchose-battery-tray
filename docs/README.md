@@ -355,7 +355,9 @@ dist/                     构建产物（git 忽略）
 1. **`cmd 20` 是补丁命令，不是原厂命令。**
    原厂固件对 `cmd > 19` 一律回 `0xFF`。见到 `0xFF` 只能判「固件没有电量补丁」，
    **绝不能当成 0%** —— 否则没刷补丁的用户会看到键盘永远 0% 并反复收到低电量提醒。
-   补丁方案见 [weikav-max102/docs/08-电量补丁方案.md](https://github.com/marsuyone/weikav-max102)。
+   补丁固件与逆向记录见
+   [Banxiaxiala/weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re)
+   （`firmware/max102_patched_battery.bin`，含电量通路的反汇编分析图）。
 2. **`cmd 6` 是「恢复出厂默认键位」，任何读取逻辑都不许碰它。**
    历史上有实现用 `cmd 6` 读电量，直接把该功能搞失效了。
 
@@ -407,9 +409,10 @@ dist/                     构建产物（git 忽略）
   以及本项目的工程规范（`AGENTS.md` / `AGENT_RULES.md`）
 - [marsuyone/mchose-battery-tray](https://github.com/marsuyone/mchose-battery-tray) ——
   本项目的基础：单图标多圆环绘制、主题跟随、单实例
-- [marsuyone/weikav-max102](https://github.com/marsuyone/weikav-max102) ——
-  维咖 MAX102 的固件逆向：VIA `cmd 20` 电量补丁的字节布局与实测帧、
-  蓝牙通道为何没有 VIA 通路、`DEVPKEY_Bluetooth_Battery` 的读取方式
+- [Banxiaxiala/weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re) ——
+  **本项目作者自己的**维咖 MAX102 固件逆向：WB32FQ95 / QMK / VIA v12 实机记录，
+  `cmd 20` 电量补丁的字节布局与实测帧、蓝牙通道为何没有 VIA 通路、
+  `DEVPKEY_Bluetooth_Battery` 的读取方式
 
 ## 文件说明
 
@@ -420,11 +423,12 @@ dist/                     构建产物（git 忽略）
 | `AGENTS.md` | 维护铁律（13 章 + 9b/9c 两条专章，AI / 开发者共同遵守） |
 | `app.ico` / `icon.ico` | exe 图标 / 托盘图标资源 |
 | `HANDOVER.md` | **交接文档**：装环境、改代码、排查手册、已知限制 |
-| `assets/architecture.png` | 五层架构图（`tools/draw_diagrams.py` 生成） |
-| `assets/fallback-chain.png` | 读取降级链示意 |
-| `assets/dataflow.png` | 一次刷新的数据流 |
-| `assets/storage-layers.png` | 历史三层聚合示意 |
-| `assets/screens/*.png` | 卡片渲染图（`--preview` 生成） |
+| `assets/architecture.svg` | 五层架构图（`tools/draw_diagrams.py` 生成） |
+| `assets/tray-states.svg` | 托盘图标各状态（`--tray` 生成，矢量） |
+| `assets/fallback-chain.svg` | 读取降级链示意 |
+| `assets/dataflow.svg` | 一次刷新的数据流 |
+| `assets/storage-layers.svg` | 历史三层聚合示意 |
+| `assets/screens/*.png` | 卡片渲染图（`--preview` 生成，3 倍分辨率） |
 | `tools/list_files.py` | 文件清单与交接自检（检查必需文件是否齐全） |
 | `tools/draw_diagrams.py` | 生成 README 用的架构 / 数据流 / 存储示意 PNG |
 

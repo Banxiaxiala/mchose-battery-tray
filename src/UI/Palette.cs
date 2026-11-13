@@ -26,8 +26,12 @@ namespace PeripheralBattery.UI
         // ---------------------------------------------------------- 电量档位
         // 参照 logi-tray 的 AppPalette：绿=充足，黄=偏低，红=告急
         public static readonly Color BatteryHigh = Color.FromRgb(0x22, 0xC5, 0x5E);
-        public static readonly Color BatteryMid = Color.FromRgb(0xF5, 0xA5, 0x24);
-        public static readonly Color BatteryLow = Color.FromRgb(0xEF, 0x44, 0x44);
+        // 四档必须能在 24px 图标上互相区分：
+        //   充足 绿 → 一般 黄 → 偏低 橙 → 告急 红
+        // 早期版本是「一般 橙 / 偏低 红 / 告急 深红」，后两者在 24px 上
+        // 几乎一样，用户分不清「该充电了」和「马上要关机了」。
+        public static readonly Color BatteryMid = Color.FromRgb(0xE8, 0xC4, 0x3C);
+        public static readonly Color BatteryLow = Color.FromRgb(0xF5, 0x8F, 0x28);
         public static readonly Color BatteryCritical = Color.FromRgb(0xDC, 0x26, 0x26);
         public static readonly Color Charging = Color.FromRgb(0x22, 0xC5, 0x5E);
 

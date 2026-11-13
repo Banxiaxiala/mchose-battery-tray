@@ -18,7 +18,7 @@
 | 代码量 | 生产代码 21 个文件 / 约 6200 行；测试 3 个文件 / 约 1000 行 |
 | 单文件 exe | 约 390 KB（framework-dependent） |
 | 第三方依赖 | **零**（只用 BCL + WPF + Win32 P/Invoke） |
-| 测试 | 109 项脱机断言，全部通过 |
+| 测试 | 127 项脱机断言，全部通过 |
 | 本机实测设备 | 罗技 PRO X 2（`046D:C54D`）、雷蛇 BlackShark V2 Pro（2.4G `1532:0555` / 蓝牙 `Razer BlackShark V2 Pro BT`）、维咖 MAX102（2.4G `342D:E537` / 蓝牙 `MAX102-BT*`） |
 
 > **v3 → v4 改了什么**：把写死的「鼠标 + 耳机」重构成设备表
@@ -328,7 +328,7 @@ dist\外设电量.exe --probe --trace
 
 | 现象 | 原因 | 怎么办 |
 |---|---|---|
-| 「固件没有电量补丁（发 cmd 20 回 0xFF）」 | 原厂固件，`cmd 20` 是补丁命令 | 刷补丁固件，见 weikav-max102 `docs/08` |
+| 「固件没有电量补丁（发 cmd 20 回 0xFF）」 | 原厂固件，`cmd 20` 是补丁命令 | 刷 `weikav-max102-re/firmware/max102_patched_battery.bin` |
 | 「USB 有线模式，无线模块未工作」 | 插着数据线，`md_info` 全零 | 拔线用 2.4G，或切到蓝牙通道 |
 | 「没有找到维咖 VIA 接口」 | dongle 不在 / 键盘关机 | 插 dongle，按 FN 切到 2.4G 通道 |
 | 「没有找到蓝牙通道的 MAX102」 | 系统没记录过电量 | 先蓝牙连一次，等 Windows 同步（几秒） |
@@ -494,7 +494,7 @@ dotnet publish src\PeripheralBattery.csproj -c Release ^
 | [yixing233/logi-tray](https://github.com/yixing233/logi-tray) | 罗技 HID++ 2.0 的槽位探测策略、各电量特性字节布局、24h 分桶与续航预测、这套卡片的视觉规格 |
 | [Ferris-echo/FerrisPulse](https://github.com/Ferris-echo/FerrisPulse) | 雷蛇 64 字节 PA/PI 报文格式（`src/Hardware/RazerHeadsetHelper.cs`），以及本项目沿用的工程规范 |
 | [marsuyone/mchose-battery-tray](https://github.com/marsuyone/mchose-battery-tray) | 本项目的基础（单图标多圆环、主题跟随、单实例） |
-| [marsuyone/weikav-max102](https://github.com/marsuyone/weikav-max102) | 维咖 MAX102 固件逆向：VIA `cmd 20` 电量补丁、蓝牙通道为何无 VIA、`DEVPKEY_Bluetooth_Battery` 读法 |
+| [Banxiaxiala/weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re) | 本项目作者自己的维咖 MAX102 固件逆向仓库：电量通路反汇编、`cmd 20` 补丁固件、指示灯位图、`DEVPKEY_Bluetooth_Battery` 读法 |
 
 ---
 

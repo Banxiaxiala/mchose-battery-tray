@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="664" viewBox="0 0 900 664" font-family="'Microsoft YaHei UI','PingFang SC','Hiragino Sans GB','Segoe UI',sans-serif">
+<rect width="900" height="664" fill="#0d1117"/>
+<text x="26" y="35.94" font-size="17" fill="#e6edf3" text-anchor="start" font-weight="600">分层架构 · 依赖严格单向</text>
+<text x="26" y="55.02" font-size="11" fill="#8b949e" text-anchor="start">每条依赖只允许指向下方，下层不得 import 上层</text>
+<rect x="26" y="68" width="848" height="76" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="10"/>
+<rect x="26" y="76" width="4" height="60" fill="#4a90d9" rx="2"/>
+<text x="44" y="90.48" font-size="14" fill="#e6edf3" text-anchor="start" font-weight="600">Program.cs</text>
+<text x="44" y="107.2" font-size="10" fill="#8b949e" text-anchor="start">装配层 —— 只接线，不含协议字节与窗口布局</text>
+<rect x="268" y="85" width="192.67" height="42" fill="#20272f" stroke="#4a90d9" stroke-width="1" rx="6"/>
+<text x="277" y="102.02" font-size="11" fill="#e6edf3" text-anchor="start">BuildDevices()</text>
+<text x="277" y="117.2" font-size="10" fill="#8b949e" text-anchor="start">设备表唯一来源</text>
+<rect x="467.67" y="85" width="192.67" height="42" fill="#20272f" stroke="#4a90d9" stroke-width="1" rx="6"/>
+<text x="476.67" y="102.02" font-size="11" fill="#e6edf3" text-anchor="start">RefreshNow()</text>
+<text x="476.67" y="117.2" font-size="10" fill="#8b949e" text-anchor="start">刷新心跳</text>
+<rect x="667.33" y="85" width="192.67" height="42" fill="#20272f" stroke="#4a90d9" stroke-width="1" rx="6"/>
+<text x="676.33" y="102.02" font-size="11" fill="#e6edf3" text-anchor="start">SyncChartToCard()</text>
+<text x="676.33" y="117.2" font-size="10" fill="#8b949e" text-anchor="start">图表切换</text>
+<rect x="26" y="162" width="848" height="116" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="10"/>
+<rect x="26" y="170" width="4" height="100" fill="#7a5bd6" rx="2"/>
+<text x="44" y="184.48" font-size="14" fill="#e6edf3" text-anchor="start" font-weight="600">UI</text>
+<text x="44" y="201.2" font-size="10" fill="#8b949e" text-anchor="start">WPF · 亚克力卡片 · 自绘图表 · 托盘图标</text>
+<rect x="268" y="199" width="92.83" height="42" fill="#20272f" stroke="#7a5bd6" stroke-width="1" rx="6"/>
+<text x="277" y="216.02" font-size="11" fill="#e6edf3" text-anchor="start">BatteryCard</text>
+<text x="277" y="231.2" font-size="10" fill="#8b949e" text-anchor="start">亚克力窗口</text>
+<rect x="367.83" y="199" width="92.83" height="42" fill="#20272f" stroke="#7a5bd6" stroke-width="1" rx="6"/>
+<text x="376.83" y="216.02" font-size="11" fill="#e6edf3" text-anchor="start">SparkChart</text>
+<text x="376.83" y="231.2" font-size="10" fill="#8b949e" text-anchor="start">柱状</text>
+<rect x="467.67" y="199" width="92.83" height="42" fill="#20272f" stroke="#7a5bd6" stroke-width="1" rx="6"/>
+<text x="476.67" y="216.02" font-size="11" fill="#e6edf3" text-anchor="start">LineChart</text>
+<text x="476.67" y="231.2" font-size="10" fill="#8b949e" text-anchor="start">折线</text>
+<rect x="567.5" y="199" width="92.83" height="42" fill="#20272f" stroke="#7a5bd6" stroke-width="1" rx="6"/>
+<text x="576.5" y="216.02" font-size="11" fill="#e6edf3" text-anchor="start">TrayIcon</text>
+<text x="576.5" y="231.2" font-size="10" fill="#8b949e" text-anchor="start">三环</text>
+<rect x="667.33" y="199" width="92.83" height="42" fill="#20272f" stroke="#7a5bd6" stroke-width="1" rx="6"/>
+<text x="676.33" y="216.02" font-size="11" fill="#e6edf3" text-anchor="start">SettingsPanel</text>
+<text x="676.33" y="231.2" font-size="10" fill="#8b949e" text-anchor="start">设置</text>
+<rect x="767.17" y="199" width="92.83" height="42" fill="#20272f" stroke="#7a5bd6" stroke-width="1" rx="6"/>
+<text x="776.17" y="216.02" font-size="11" fill="#e6edf3" text-anchor="start">Palette</text>
+<text x="776.17" y="231.2" font-size="10" fill="#8b949e" text-anchor="start">配色</text>
+<rect x="26" y="296" width="848" height="108" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="10"/>
+<rect x="26" y="304" width="4" height="92" fill="#2ea043" rx="2"/>
+<text x="44" y="318.48" font-size="14" fill="#e6edf3" text-anchor="start" font-weight="600">Services</text>
+<text x="44" y="335.2" font-size="10" fill="#8b949e" text-anchor="start">纯逻辑 + 文件持久化，可脱机单测</text>
+<rect x="268" y="329" width="142.75" height="42" fill="#20272f" stroke="#2ea043" stroke-width="1" rx="6"/>
+<text x="277" y="346.02" font-size="11" fill="#e6edf3" text-anchor="start">History</text>
+<text x="277" y="361.2" font-size="10" fill="#8b949e" text-anchor="start">三层聚合 + 预测</text>
+<rect x="417.75" y="329" width="142.75" height="42" fill="#20272f" stroke="#2ea043" stroke-width="1" rx="6"/>
+<text x="426.75" y="346.02" font-size="11" fill="#e6edf3" text-anchor="start">Settings</text>
+<text x="426.75" y="361.2" font-size="10" fill="#8b949e" text-anchor="start">便携目录</text>
+<rect x="567.5" y="329" width="142.75" height="42" fill="#20272f" stroke="#2ea043" stroke-width="1" rx="6"/>
+<text x="576.5" y="346.02" font-size="11" fill="#e6edf3" text-anchor="start">AutoStart</text>
+<text x="576.5" y="361.2" font-size="10" fill="#8b949e" text-anchor="start">三重对齐</text>
+<rect x="717.25" y="329" width="142.75" height="42" fill="#20272f" stroke="#2ea043" stroke-width="1" rx="6"/>
+<text x="726.25" y="346.02" font-size="11" fill="#e6edf3" text-anchor="start">TooltipText</text>
+<text x="726.25" y="361.2" font-size="10" fill="#8b949e" text-anchor="start">63 字符</text>
+<rect x="26" y="422" width="848" height="108" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="10"/>
+<rect x="26" y="430" width="4" height="92" fill="#db6d28" rx="2"/>
+<text x="44" y="444.48" font-size="14" fill="#e6edf3" text-anchor="start" font-weight="600">Hardware</text>
+<text x="44" y="461.2" font-size="10" fill="#8b949e" text-anchor="start">I/O 编排；Protocols 是零 I/O 的纯函数</text>
+<rect x="268" y="455" width="142.75" height="42" fill="#20272f" stroke="#db6d28" stroke-width="1" rx="6"/>
+<text x="277" y="472.02" font-size="11" fill="#e6edf3" text-anchor="start">DeviceCatalog</text>
+<text x="277" y="487.2" font-size="10" fill="#8b949e" text-anchor="start">设备表</text>
+<rect x="417.75" y="455" width="142.75" height="42" fill="#20272f" stroke="#db6d28" stroke-width="1" rx="6"/>
+<text x="426.75" y="472.02" font-size="11" fill="#e6edf3" text-anchor="start">Protocols</text>
+<text x="426.75" y="487.2" font-size="10" fill="#8b949e" text-anchor="start">三套协议</text>
+<rect x="567.5" y="455" width="142.75" height="42" fill="#20272f" stroke="#db6d28" stroke-width="1" rx="6"/>
+<text x="576.5" y="472.02" font-size="11" fill="#e6edf3" text-anchor="start">Readers</text>
+<text x="576.5" y="487.2" font-size="10" fill="#8b949e" text-anchor="start">罗技/雷蛇</text>
+<rect x="717.25" y="455" width="142.75" height="42" fill="#20272f" stroke="#db6d28" stroke-width="1" rx="6"/>
+<text x="726.25" y="472.02" font-size="11" fill="#e6edf3" text-anchor="start">Max102Reader</text>
+<text x="726.25" y="487.2" font-size="10" fill="#8b949e" text-anchor="start">双通道</text>
+<rect x="26" y="548" width="848" height="76" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="10"/>
+<rect x="26" y="556" width="4" height="60" fill="#5ac8fa" rx="2"/>
+<text x="44" y="570.48" font-size="14" fill="#e6edf3" text-anchor="start" font-weight="600">Core / Models</text>
+<text x="44" y="587.2" font-size="10" fill="#8b949e" text-anchor="start">Win32 唯一入口 · HID 常驻读 · 蓝牙属性 · 纯数据</text>
+<rect x="268" y="565" width="192.67" height="42" fill="#20272f" stroke="#5ac8fa" stroke-width="1" rx="6"/>
+<text x="277" y="582.02" font-size="11" fill="#e6edf3" text-anchor="start">Win32</text>
+<text x="277" y="597.2" font-size="10" fill="#8b949e" text-anchor="start">全部 P/Invoke</text>
+<rect x="467.67" y="565" width="192.67" height="42" fill="#20272f" stroke="#5ac8fa" stroke-width="1" rx="6"/>
+<text x="476.67" y="582.02" font-size="11" fill="#e6edf3" text-anchor="start">Hid</text>
+<text x="476.67" y="597.2" font-size="10" fill="#8b949e" text-anchor="start">挂起读</text>
+<rect x="667.33" y="565" width="192.67" height="42" fill="#20272f" stroke="#5ac8fa" stroke-width="1" rx="6"/>
+<text x="676.33" y="582.02" font-size="11" fill="#e6edf3" text-anchor="start">BluetoothBattery</text>
+<text x="676.33" y="597.2" font-size="10" fill="#8b949e" text-anchor="start">两棵 PnP 树</text>
+<line x1="450" y1="146" x2="450" y2="160" stroke="#6e7681" stroke-width="2"/>
+<polygon points="450,160 445,152 455,152" fill="#6e7681"/>
+<line x1="450" y1="280" x2="450" y2="294" stroke="#6e7681" stroke-width="2"/>
+<polygon points="450,294 445,286 455,286" fill="#6e7681"/>
+<line x1="450" y1="406" x2="450" y2="420" stroke="#6e7681" stroke-width="2"/>
+<polygon points="450,420 445,412 455,412" fill="#6e7681"/>
+<line x1="450" y1="532" x2="450" y2="546" stroke="#6e7681" stroke-width="2"/>
+<polygon points="450,546 445,538 455,538" fill="#6e7681"/>
+<text x="26" y="647.02" font-size="11" fill="#6e7681" text-anchor="start">Models 不依赖任何其它层  ·  Hardware 不得 import UI  ·  唯一外部依赖是构建期的 .NET SDK 8</text>
+</svg>

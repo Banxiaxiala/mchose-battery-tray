@@ -449,6 +449,25 @@ namespace PeripheralBattery.Hardware
             return (null, ChooseError(hidError, btError));
         }
 
+        // ---------------------------------------------------------- 单通道入口
+        //
+        // 协议链的编排现在归 DeviceBinder（见 Hardware/DeviceBinder.cs），
+        // 由 DeviceCatalog 里的声明决定「先试哪条、要不要试蓝牙」。
+        // 这两个方法让 Binder 能精确调用某一条通道，而不会连带触发另一条 ——
+        // 否则「只配了蓝牙通道」的设备仍会先去做一轮 HID 枚举。
+
+        /// <summary>只走 2.4G PA/PI 通道</summary>
+        public (Reading? reading, string error) ReadWirelessOnly()
+        {
+            return ReadWireless();
+        }
+
+        /// <summary>只走蓝牙系统属性通道</summary>
+        public (Reading? reading, string error) ReadBluetoothOnly()
+        {
+            return ReadBluetooth();
+        }
+
         /// <summary>
         /// 两条链路都失败时的文案。
         ///

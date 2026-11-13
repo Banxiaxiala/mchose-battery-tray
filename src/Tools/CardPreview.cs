@@ -187,6 +187,19 @@ namespace PeripheralBattery.Tools
             app.Run();
         }
 
+        /// <summary>
+        /// 截图倍率。1 DIP = 3 像素。
+        ///
+        /// 为什么不是 1x：卡片只有 288 DIP 宽，README 里会被放大到 260~300 px
+        /// 显示，1x 位图在 4K 屏或网页缩放下明显发糊。3x（864 px 宽）在任何
+        /// 常见显示倍率下都够用，同时文件仍在 100 KB 以内。
+        ///
+        /// 用 RenderTargetBitmap 的 dpi 参数而不是事后 resize：
+        /// 前者让 WPF 真的按高分辨率布局与栅格化（文字是清晰的新渲染），
+        /// 后者只是把已有的位图插值放大，模糊无法挽回。
+        /// </summary>
+        private const int RenderScale = 3;
+
         private static void Save(Window window, string path)
         {
             window.UpdateLayout();
@@ -201,7 +214,11 @@ namespace PeripheralBattery.Tools
                 ?? throw new InvalidOperationException("窗口没有内容");
             content.UpdateLayout();
 
-            var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            int pixelWidth = width * RenderScale;
+            int pixelHeight = height * RenderScale;
+
+            var bitmap = new RenderTargetBitmap(pixelWidth, pixelHeight,
+                96 * RenderScale, 96 * RenderScale, PixelFormats.Pbgra32);
             var visual = new DrawingVisual();
             using (var context = visual.RenderOpen())
             {
@@ -211,6 +228,8 @@ namespace PeripheralBattery.Tools
                 Color backdrop = Theme.IsDark
                     ? Color.FromRgb(0x20, 0x24, 0x2A)
                     : Color.FromRgb(0xF3, 0xF4, 0xF6);
+
+                // 坐标系仍是 DIP（width/height），dpi 由 RenderTargetBitmap 放大
                 context.DrawRectangle(new SolidColorBrush(backdrop),
                     null, new Rect(0, 0, width, height));
                 context.DrawRectangle(new VisualBrush(content), null,

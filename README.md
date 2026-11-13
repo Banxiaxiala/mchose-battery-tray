@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # 外设电量 · Peripheral Battery
 
@@ -9,7 +9,7 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
 [![Size](https://img.shields.io/badge/single%20exe-425%20KB-blue?style=flat-square)](#性能)
-[![Tests](https://img.shields.io/badge/tests-109%20passed-success?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/tests-127%20passed-success?style=flat-square)](#测试)
 
 <img src="assets/screens/line-24h.png" width="300" alt="外设电量卡片 —— 折线图视图">
 
@@ -22,9 +22,12 @@
 - [它解决什么问题](#它解决什么问题)
 - [功能](#功能)
 - [界面](#界面)
+- [托盘图标](#托盘图标)
 - [架构](#架构)
 - [工作原理](#工作原理)
 - [历史数据](#历史数据)
+- [设备管理](#设备管理)
+- [添加设备型号](#添加设备型号)
 - [便携模式](#便携模式)
 - [构建](#构建)
 - [测试](#测试)
@@ -56,6 +59,7 @@ Windows 自带的蓝牙电量只在「设置 → 蓝牙」里，一关窗口就�
 | 🎨 | **跟随系统主题** | 浅色 / 深色自动切换，阈值配色可自定义 |
 | 🔔 | **低电量提醒** | 任意设备 ≤10% 弹一次通知，回充后复位 |
 | 💾 | **便携** | 设置 / 历史 / 日志都在 exe 旁边，整个文件夹拷走即用 |
+| 🎛️ | **设备开关** | 关掉的设备完全不探测、不占环、不记历史；环位自动补位 |
 | ♻️ | **托盘自愈** | explorer.exe 重启后图标自动重建（`WM_TASKBARCREATED`） |
 
 ## 界面
@@ -81,9 +85,37 @@ Windows 自带的蓝牙电量只在「设置 → 蓝牙」里，一关窗口就�
 > 以上均为真实渲染（`外设电量.exe --preview <路径> <bar|line> <小时>`），
 > 用合成数据驱动，可在无设备环境下复现视觉改动。
 
+## 托盘图标
+
+托盘上只有**一个**图标：三圈同心环，外环鼠标、中环耳机、内环键盘。
+每圈按电量描弧 —— 满圈是 100%，半圈是 50%；离线设备只留极淡的轨道。
+
+<p align="center"><img src="assets/tray-states.svg" width="880" alt="托盘图标各状态"></p>
+
+<p align="center"><img src="assets/tray-states-light.svg" width="880" alt="浅色任务栏下的托盘图标"></p>
+
+下面每格同时给出**放大 6 倍**与**1:1 实际尺寸**：24px 是任务栏上真实看到的
+大小，三圈在这个尺寸下必须仍然可分。几何参数是按 24px 反推的
+（半径 10.3 / 7.0 / 3.8，描边 2.6 / 2.4 / 2.4），相邻净间隙只有 0.8px ——
+再粗一点三圈就会粘连成一坨。
+
+四档配色：**充足 绿 → 一般 黄 → 偏低 橙 → 告急 红**，充电时整圈点亮变绿。
+四个颜色必须能在 24px 上互相区分 —— 早期版本「一般」是橙、「偏低」是红、
+「告急」是深红，后两者几乎一样，用户分不清「该充电了」和「马上要关机」。
+
+充电之所以整圈点亮而不是只画到电量位置，是因为 24px 上根本看不出
+「弧长了多少」。
+
+> 上面是**矢量 SVG**：`外设电量.exe --tray <路径.svg> [--light]` 生成。
+> 图标本身是纯几何（圆 + 圆弧），做成矢量后放大到任何尺寸都清晰 ——
+> 位图在 24px 放大 10 倍只会得到马赛克。
+> 几何参数直接读 `TrayIconArt.Default`，与真实托盘图标共用同一份定义，
+> 不会出现「README 上的图和实际图标长得不一样」。
+> 每格都给出放大版与 1:1 实际尺寸：24px 才是任务栏上的真实观感
+
 ## 架构
 
-<p align="center"><img src="assets/architecture.png" width="880" alt="五层架构"></p>
+<p align="center"><img src="assets/architecture.svg" width="880" alt="五层架构"></p>
 
 依赖严格单向，下层不得 import 上层：
 
@@ -100,7 +132,7 @@ Program  →  UI  →  Services  →  Hardware  →  Core  →  Models
 
 ### 读取降级链
 
-<p align="center"><img src="assets/fallback-chain.png" width="880" alt="读取降级链"></p>
+<p align="center"><img src="assets/fallback-chain.svg" width="880" alt="读取降级链"></p>
 
 每台设备先试信息量最大的私有协议，失败才回落系统 API：
 
@@ -117,7 +149,7 @@ Program  →  UI  →  Services  →  Hardware  →  Core  →  Models
 
 ### 一次刷新
 
-<p align="center"><img src="assets/dataflow.png" width="880" alt="数据流"></p>
+<p align="center"><img src="assets/dataflow.svg" width="880" alt="数据流"></p>
 
 三条护栏都是踩坑后加的，每条都有对应断言锁住：
 
@@ -127,7 +159,7 @@ Program  →  UI  →  Services  →  Hardware  →  Core  →  Models
 
 ## 历史数据
 
-<p align="center"><img src="assets/storage-layers.png" width="880" alt="三层聚合"></p>
+<p align="center"><img src="assets/storage-layers.svg" width="880" alt="三层聚合"></p>
 
 「看 24 个月趋势」不能靠堆原始样本：30 秒一条算下来是 630 万条、约 150 MB。
 改为三层折叠，**总计约 200 KB/设备**：
@@ -146,6 +178,100 @@ Program  →  UI  →  Services  →  Hardware  →  Core  →  Models
   补出来的点会把「关机三天」画成电量平稳的直线。
 - **横轴按真实时间映射。** 只按数组下标摆点时，「2 年窗口里只有 24 小时
   数据」会被拉伸铺满整条横轴，看起来像两年的趋势。
+
+## 设备管理
+
+设备会越接越多，但常用的就那几台。设置面板里的「设备」一节可以逐台开关：
+
+```text
+设备
+  鼠标        ☑
+  耳机        ☐   ← 关掉
+  键盘        ☑
+```
+
+关闭是**彻底不参与**，不是「隐藏」：
+
+| | 关闭监控 | 离线 |
+|---|---|---|
+| HID / PnP 探测 | **完全不发** | 每轮都试，等它回来 |
+| 托盘环 | 不占，后面的设备补位 | 占位，只画淡轨道 |
+| 卡片与悬停提示 | 不出现 | 出现，标「离线」 |
+| 历史记录 | 不再写入 | 不写入（但保留已有） |
+| 低电量提醒 | 不参与 | 参与 |
+
+补位这一点值得说明：关掉中间那台之后，环数会从 3 变成 2，而不是留一个
+永远空着的同心环 —— 否则用户会以为「那里还有台设备但读不到」。响应也比
+「下一轮刷新才停」更及时：开关一改就立刻重算环位并重画。
+
+设置项落在 `settings.json` 的 `disabled_devices`（存 history key 而不是显示名，
+因为名字会改，key 是稳定的文件标识）。手改配置留下空串或重复项时，
+`Sanitize()` 会清掉。
+
+## 添加设备型号
+
+设备清单是**数据**，不是代码分支。想加一台设备，有两种方式：
+
+### 同协议的其它型号 —— 不用改代码
+
+在 `data\devices.json` 里写一条就行，重编译都不需要：
+
+```json
+[
+  {
+    "key": "g304",
+    "label": "备用鼠标",
+    "model": "G304",
+    "channels": [
+      { "kind": "logitech", "vendorId": 1133 }
+    ]
+  }
+]
+```
+
+`kind` 支持宽松写法：`logitech` / `razer` / `via` / `bluetooth`，
+也接受严格写法 `LogitechHidpp` / `RazerPaPi` / `ViaQmk` / `BluetoothProperty`。
+
+一条设备可以有**多条通道**，按顺序试，第一条读到就停：
+
+```json
+{
+  "key": "my-headset",
+  "label": "耳机",
+  "model": "某款雷蛇耳机",
+  "channels": [
+    { "kind": "razer", "vendorId": 5410 },
+    { "kind": "bluetooth", "namePrefix": "Razer",
+      "classicBluetoothOnly": true, "model": "某款雷蛇耳机" }
+  ]
+}
+```
+
+> `kind: "bluetooth"` 必须给 `namePrefix`，因为系统属性只能靠名字找设备。
+> `classicBluetoothOnly` 决定扫哪棵树：耳机是 `true`（BTHENUM），
+> 低功耗键盘是 `false`（BTHLE）。
+
+校验偏严是故意的：**宁可不加，也不要加一条读不出数据的设备** ——
+一条永远失败的设备会在托盘上留一个永久空环，用户第一反应是「工具坏了」
+而不是「我配错了」。所以下列情况会被跳过（并在 `--trace` 日志里写明原因）：
+
+- 缺少 `key` 或 `label`
+- 没有任何可用通道
+- `key` 与内置设备重名，或与其它自定义项重复
+- 协议名不认识
+
+### 全新协议 —— 改一张表
+
+真正要对接一套新协议时：
+
+1. `src/Hardware/Protocols.cs` 加**纯解析函数**（只吃字节、只吐值，零 I/O）
+2. `src/Hardware/Readers.cs` 加 I/O 编排，暴露一个 `Read()` 方法
+3. `src/Hardware/DeviceCatalog.cs` 的 `BuiltIn` 里加一条声明
+4. `src/Hardware/DeviceBinder.cs` 补一个 `case`（只在引入**新协议类型**时才需要）
+5. 抓包帧补进 `tests/ProtocolTests.cs` 做断言
+
+`Program.cs`、卡片、托盘、历史**一行都不用改** —— 它们只认
+`DeviceDefinition`，不认具体型号。
 
 ## 便携模式
 
@@ -198,7 +324,7 @@ build.bat
 <summary>分步执行</summary>
 
 ```bat
-rem 单元测试（109 项，零硬件、零第三方框架）
+rem 单元测试（127 项，零硬件、零第三方框架）
 dotnet run --project tests\PeripheralBattery.Tests.csproj
 
 rem 只打印一次读数，验证协议是否还通
@@ -219,7 +345,7 @@ dotnet run --project src\PeripheralBattery.csproj -- --preview card.png line 168
 dotnet run --project tests\PeripheralBattery.Tests.csproj
 ```
 
-**109 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
+**127 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
 `tests/Harness.cs` 里 60 行手写运行器就够，`Main` 返回非 0 表示失败。
 
 覆盖面：
@@ -283,14 +409,28 @@ dotnet run --project tests\PeripheralBattery.Tests.csproj
 | [docs/HANDOVER.md](docs/HANDOVER.md) | **接手先读这个**：装环境、改代码、排查手册 |
 | [docs/AGENTS.md](docs/AGENTS.md) | 维护铁律（AI / 开发者共同遵守） |
 
+## 关于这些图
+
+示意图（架构 / 降级链 / 数据流 / 存储分层）是 **SVG**，由
+`tools/draw_diagrams.py` 生成 —— 浏览器矢量渲染，缩放不糊，单张只有
+3–9 KB。卡片与托盘图是 PNG，因为它们要展示真实像素渲染结果，必须光栅。
+
+```bat
+py -3.13 tools\draw_diagrams.py          rem 只出 SVG
+py -3.13 tools\draw_diagrams.py --png    rem 同时出 PNG（本地预览用）
+```
+
+`--preview` / `--tray` 生成界面截图，都是离线合成数据，不需要真机。
+
 ## 致谢
 
 - [yixing233/logi-tray](https://github.com/yixing233/logi-tray) —— 罗技 HID++ 2.0
   两遍槽位探测、短集合错误帧判定、亚克力卡片视觉规格
 - [Ferris-echo/FerrisPulse](https://github.com/Ferris-echo/FerrisPulse) ——
   雷蛇 64 字节 PA/PI 报文格式，以及本项目的工程规范
-- [marsuyone/weikav-max102](https://github.com/marsuyone/weikav-max102) ——
-  维咖 MAX102 固件逆向：VIA `cmd 20` 电量补丁
+- [Banxiaxiala/weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re) ——
+  **本项目作者自己的**维咖 MAX102 固件逆向仓库：电量通路反汇编图、
+  `cmd 20` 电量补丁的字节布局与实测帧、可直接刷入的补丁固件
 
 ## 授权
 

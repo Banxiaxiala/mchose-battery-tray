@@ -62,12 +62,12 @@ namespace PeripheralBattery.UI
     {
         /// <summary>充足（> 一般阈值）</summary>
         public Color High = Color.FromArgb(0x22, 0xC5, 0x5E);
-        /// <summary>一般（> 偏低阈值）</summary>
-        public Color Mid = Color.FromArgb(0xF5, 0xA5, 0x24);
-        /// <summary>偏低（> 告急阈值）</summary>
-        public Color Low = Color.FromArgb(0xEF, 0x44, 0x44);
-        /// <summary>告急（≤ 告急阈值）</summary>
-        public Color Critical = Color.FromArgb(0xDC, 0x26, 0x26);
+        /// <summary>一般（> 偏低阈值），黄</summary>
+        public Color Mid = Color.FromArgb(0xE8, 0xC4, 0x3C);
+        /// <summary>偏低（> 告急阈值），橙</summary>
+        public Color Low = Color.FromArgb(0xF5, 0x8F, 0x28);
+        /// <summary>告急（≤ 告急阈值），红</summary>
+        public Color Critical = Color.FromArgb(0xEF, 0x44, 0x44);
         /// <summary>充电中（整圈点亮）</summary>
         public Color Charging = Color.FromArgb(0x22, 0xC5, 0x5E);
         /// <summary>离线轨道的底色（用浅色，区别于有读数时的轨道）</summary>
@@ -132,11 +132,37 @@ namespace PeripheralBattery.UI
             RingGeometry? geometry = null, RingColors? colors = null,
             int lowThreshold = 30, int criticalThreshold = 10, int midThreshold = 55)
         {
+            return RenderAt(size, size, rings, fore, geometry, colors,
+                lowThreshold, criticalThreshold, midThreshold);
+        }
+
+        /// <summary>
+        /// 按指定像素尺寸渲染（可远大于实际 24px 图标）。
+        ///
+        /// 存在的理由：README 与视觉调试需要把图标放大到 240px 以上逐像素检查，
+        /// 而 Render(24) 再插值放大只会得到一团马赛克。
+        /// 这里让 GDI+ 直接在大画布上按比例绘制，圆弧边缘是真实计算出来的。
+        /// </summary>
+        public static Bitmap RenderLarge(int pixelSize, Reading?[]? rings, Color fore,
+            RingGeometry? geometry = null, RingColors? colors = null,
+            int lowThreshold = 30, int criticalThreshold = 10, int midThreshold = 55)
+        {
+            // 缩放倍率 = 目标像素 / 基准 24px；几何参数按这个比例放大
+            double factor = pixelSize / 24.0;
+            return RenderAt(pixelSize, pixelSize, rings, fore, geometry, colors,
+                lowThreshold, criticalThreshold, midThreshold, factor);
+        }
+
+        private static Bitmap RenderAt(int size, int baseSize, Reading?[]? rings,
+            Color fore, RingGeometry? geometry, RingColors? colors,
+            int lowThreshold, int criticalThreshold, int midThreshold,
+            double scaleFactor = 1.0)
+        {
             var geo = geometry ?? Default;
             var palette = colors ?? RingColors.Default;
 
             // 内部 4x 绘制再缩下来，抗锯齿质量好
-            const int Scale = 4;
+            int Scale = (int)Math.Max(4, Math.Round(4 * scaleFactor));
             using var big = new Bitmap(size * Scale, size * Scale);
             using (var g = Graphics.FromImage(big))
             {

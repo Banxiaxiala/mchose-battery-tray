@@ -13,7 +13,9 @@
 // 5. [编码] UTF-8 with BOM。
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -72,6 +74,47 @@ namespace PeripheralBattery.Services
         /// </summary>
         [JsonPropertyName("chart_range_hours")]
         public int ChartRangeHours { get; set; } = 24;
+
+        // ---------------------------------------------------------- 设备开关
+        /// <summary>
+        /// 被关闭的设备（history key 列表）。
+        ///
+        /// 关闭 = **彻底不参与**：不探测、不占托盘环、不进卡片、不写历史。
+        /// 这和「离线」是两件事：离线是设备没应答，下次可能回来；
+        /// 关闭是用户明确的「这台我不再看了」。
+        ///
+        /// 用 history key 而不是显示名：名字会改（「鼠标」→「PRO X 2」），
+        /// key 是稳定的文件标识。
+        ///
+        /// 存成列表而不是每台一个布尔字段，是因为设备清单本身是代码里的表
+        /// （见 Program.BuildDevices）；以后加设备不需要再动设置结构。
+        /// </summary>
+        [JsonPropertyName("disabled_devices")]
+        public List<string> DisabledDevices { get; set; } = new();
+
+        /// <summary>某台设备是否被用户关闭了监控</summary>
+        public bool IsDeviceEnabled(string historyKey)
+        {
+            if (string.IsNullOrEmpty(historyKey)) return true;
+            return !DisabledDevices.Exists(k =>
+                string.Equals(k, historyKey, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// 设置某台设备的开关状态。返回 true 表示真的变了 ——
+        /// 调用方据此决定要不要重算环位与刷新。
+        /// </summary>
+        public bool SetDeviceEnabled(string historyKey, bool enabled)
+        {
+            if (string.IsNullOrEmpty(historyKey)) return false;
+            bool currentlyEnabled = IsDeviceEnabled(historyKey);
+            if (currentlyEnabled == enabled) return false;
+
+            DisabledDevices.RemoveAll(k =>
+                string.Equals(k, historyKey, StringComparison.OrdinalIgnoreCase));
+            if (!enabled) DisabledDevices.Add(historyKey);
+            return true;
+        }
 
         /// <summary>可选的时间跨度（小时）。界面按这个列表生成切换按钮</summary>
         public static readonly int[] ChartRangeOptions = { 24, 168, 720, 8760, 17520 };
@@ -191,6 +234,14 @@ namespace PeripheralBattery.Services
             CardHeight = ClampCardHeight(CardHeight);
             ChartStyle = ClampChartStyle(ChartStyle);
             ChartRangeHours = ClampChartRange(ChartRangeHours);
+
+            // 手改配置可能留下空串或重复项，会导致「同一条被关两次」这类怪相
+            DisabledDevices ??= new List<string>();
+            DisabledDevices.RemoveAll(string.IsNullOrWhiteSpace);
+            DisabledDevices = DisabledDevices
+                .Select(k => k.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             // 阈值必须严格递增，否则配色会出现「不可达档位」
             ThresholdCritical = Math.Clamp(ThresholdCritical, 1, 60);
@@ -352,15 +403,28 @@ namespace PeripheralBattery.Services
         /// <summary>日志目录。与数据同处，整体搬走时一起走。</summary>
         public static string LogDirectory { get { return Path.Combine(Directory, "logs"); } }
 
-        public static string FilePath { get { return Path.Combine(Directory, "settings.json"); } }
+        /// <summary>设置文件名</summary>
+        public const string FileName = "settings.json";
+
+        public static string FilePath { get { return Path.Combine(Directory, FileName); } }
 
         public static Settings Load()
         {
+            return LoadFrom(Directory);
+        }
+
+        /// <summary>
+        /// 从指定目录读取。directory 参数是为了测试能隔离到临时目录 ——
+        /// 早期版本只能读全局数据目录，测试会污染开发机的真实设置。
+        /// </summary>
+        public static Settings LoadFrom(string directory)
+        {
             try
             {
-                if (File.Exists(FilePath))
+                string path = Path.Combine(directory, FileName);
+                if (File.Exists(path))
                 {
-                    string json = File.ReadAllText(FilePath);
+                    string json = File.ReadAllText(path);
                     var loaded = JsonSerializer.Deserialize<Settings>(json);
                     if (loaded != null)
                     {
@@ -378,18 +442,24 @@ namespace PeripheralBattery.Services
 
         public void Save()
         {
+            SaveTo(Directory);
+        }
+
+        public void SaveTo(string directory)
+        {
             try
             {
-                System.IO.Directory.CreateDirectory(Directory);
+                System.IO.Directory.CreateDirectory(directory);
                 string json = JsonSerializer.Serialize(this, new JsonSerializerOptions
                 {
                     WriteIndented = true,
                     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
                 });
                 // 不写 BOM：带 BOM 的 JSON 会让其它解析器直接报错
-                string temp = FilePath + ".tmp";
+                string path = Path.Combine(directory, FileName);
+                string temp = path + ".tmp";
                 File.WriteAllText(temp, json, new System.Text.UTF8Encoding(false));
-                File.Move(temp, FilePath, overwrite: true);
+                File.Move(temp, path, overwrite: true);
             }
             catch (Exception)
             {

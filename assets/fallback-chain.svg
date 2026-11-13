@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="384" viewBox="0 0 900 384" font-family="'Microsoft YaHei UI','PingFang SC','Hiragino Sans GB','Segoe UI',sans-serif">
+<rect width="900" height="384" fill="#0d1117"/>
+<text x="26" y="35.94" font-size="17" fill="#e6edf3" text-anchor="start" font-weight="600">读取降级链 · 每台设备自动选能用的通道</text>
+<text x="26" y="55.02" font-size="11" fill="#8b949e" text-anchor="start">先试信息量大的私有协议，失败再回落系统 API；全程零轮询、零独占</text>
+<rect x="26" y="72" width="274.67" height="290" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="10"/>
+<text x="40" y="94.66" font-size="13" fill="#e6edf3" text-anchor="start" font-weight="600">鼠标</text>
+<text x="40" y="112.2" font-size="10" fill="#8b949e" text-anchor="start">罗技 LIGHTSPEED</text>
+<rect x="40" y="140" width="36" height="17" fill="#2ea043" rx="8"/>
+<text x="58" y="150.38" font-size="9" fill="#0a0e12" text-anchor="middle" font-weight="600">首选</text>
+<text x="84" y="150.84" font-size="12" fill="#e6edf3" text-anchor="start" font-weight="600">HID++ 2.0</text>
+<text x="84" y="168.2" font-size="10" fill="#8b949e" text-anchor="start">特性 0x1004 → 0x1000 → 0x1001</text>
+<line x1="40" y1="186" x2="286.67" y2="186" stroke="#30363d" stroke-width="1"/>
+<text x="42" y="197.38" font-size="9" fill="#6e7681" text-anchor="start">↓ 读不到时回落</text>
+<rect x="40" y="224" width="36" height="17" fill="#5a8c5a" rx="8"/>
+<text x="58" y="234.38" font-size="9" fill="#0a0e12" text-anchor="middle" font-weight="600">回落</text>
+<text x="84" y="234.84" font-size="12" fill="#e6edf3" text-anchor="start" font-weight="600">直连端点</text>
+<text x="84" y="252.2" font-size="10" fill="#8b949e" text-anchor="start">插着数据线时，同协议单槽位</text>
+<text x="40" y="338.2" font-size="10" fill="#6e7681" text-anchor="start">两条都失败时如实上报</text>
+<text x="40" y="356.2" font-size="10" fill="#6e7681" text-anchor="start">绝不伪造 0%</text>
+<rect x="312.67" y="72" width="274.67" height="290" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="10"/>
+<text x="326.67" y="94.66" font-size="13" fill="#e6edf3" text-anchor="start" font-weight="600">耳机</text>
+<text x="326.67" y="112.2" font-size="10" fill="#8b949e" text-anchor="start">雷蛇 BlackShark</text>
+<rect x="326.67" y="140" width="36" height="17" fill="#db6d28" rx="8"/>
+<text x="344.67" y="150.38" font-size="9" fill="#0a0e12" text-anchor="middle" font-weight="600">首选</text>
+<text x="370.67" y="150.84" font-size="12" fill="#e6edf3" text-anchor="start" font-weight="600">2.4G PA/PI</text>
+<text x="370.67" y="168.2" font-size="10" fill="#8b949e" text-anchor="start">64 字节报文：电量/充电/连接</text>
+<line x1="326.67" y1="186" x2="573.33" y2="186" stroke="#30363d" stroke-width="1"/>
+<text x="328.67" y="197.38" font-size="9" fill="#6e7681" text-anchor="start">↓ 读不到时回落</text>
+<rect x="326.67" y="224" width="36" height="17" fill="#96643c" rx="8"/>
+<text x="344.67" y="234.38" font-size="9" fill="#0a0e12" text-anchor="middle" font-weight="600">回落</text>
+<text x="370.67" y="234.84" font-size="12" fill="#e6edf3" text-anchor="start" font-weight="600">蓝牙</text>
+<text x="370.67" y="252.2" font-size="10" fill="#8b949e" text-anchor="start">BTHENUM 电量属性，按 MAC 聚合</text>
+<text x="326.67" y="338.2" font-size="10" fill="#6e7681" text-anchor="start">两条都失败时如实上报</text>
+<text x="326.67" y="356.2" font-size="10" fill="#6e7681" text-anchor="start">绝不伪造 0%</text>
+<rect x="599.33" y="72" width="274.67" height="290" fill="#161b22" stroke="#3d444d" stroke-width="1" rx="10"/>
+<text x="613.33" y="94.66" font-size="13" fill="#e6edf3" text-anchor="start" font-weight="600">键盘</text>
+<text x="613.33" y="112.2" font-size="10" fill="#8b949e" text-anchor="start">维咖 MAX102</text>
+<rect x="613.33" y="140" width="36" height="17" fill="#7a5bd6" rx="8"/>
+<text x="631.33" y="150.38" font-size="9" fill="#0a0e12" text-anchor="middle" font-weight="600">首选</text>
+<text x="657.33" y="150.84" font-size="12" fill="#e6edf3" text-anchor="start" font-weight="600">2.4G VIA</text>
+<text x="657.33" y="168.2" font-size="10" fill="#8b949e" text-anchor="start">cmd 20 + 连接状态与指示灯</text>
+<line x1="613.33" y1="186" x2="860" y2="186" stroke="#30363d" stroke-width="1"/>
+<text x="615.33" y="197.38" font-size="9" fill="#6e7681" text-anchor="start">↓ 读不到时回落</text>
+<rect x="613.33" y="224" width="36" height="17" fill="#645096" rx="8"/>
+<text x="631.33" y="234.38" font-size="9" fill="#0a0e12" text-anchor="middle" font-weight="600">回落</text>
+<text x="657.33" y="234.84" font-size="12" fill="#e6edf3" text-anchor="start" font-weight="600">蓝牙</text>
+<text x="657.33" y="252.2" font-size="10" fill="#8b949e" text-anchor="start">BTHLE 电量属性，DEV_ 节点</text>
+<text x="613.33" y="338.2" font-size="10" fill="#6e7681" text-anchor="start">两条都失败时如实上报</text>
+<text x="613.33" y="356.2" font-size="10" fill="#6e7681" text-anchor="start">绝不伪造 0%</text>
+</svg>

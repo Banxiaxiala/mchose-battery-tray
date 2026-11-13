@@ -10,6 +10,7 @@
 // 4. [编码] UTF-8 with BOM。
 
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -56,15 +57,32 @@ namespace PeripheralBattery.UI
 
         private bool _suppressEvents;
 
+        /// <summary>
+        /// 参与开关的设备清单：(history key, 显示名)。
+        ///
+        /// 为什么传 key 而不是直接传 DeviceSlot：SettingsPanel 属于 UI 层，
+        /// 而 DeviceSlot 定义在 Program（装配层）。UI 反过来依赖装配层的类型
+        /// 会破坏「依赖严格单向」。这里只要最小信息即可。
+        /// </summary>
+        private readonly List<(string Key, string Label)> _devices = new();
+
+        /// <summary>某台设备的开关被切换（key, 是否启用）。已落盘。</summary>
+        public event Action<string, bool>? DeviceToggled;
+
         /// <summary>任意设置变化（已落盘）</summary>
         public event Action? SettingsChanged;
 
         private Rect? _cardRect;
         private int _frames;
 
-        public SettingsPanel(Settings settings)
+        public SettingsPanel(Settings settings,
+            IEnumerable<(string Key, string Label)>? devices = null)
         {
             _settings = settings;
+            if (devices != null)
+            {
+                foreach (var item in devices) _devices.Add(item);
+            }
 
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
@@ -287,6 +305,40 @@ namespace PeripheralBattery.UI
 
             _root.Children.Add(Divider());
 
+            // ---- 设备 ----
+            // 关闭 = 彻底不参与：不探测、不占托盘环、不进卡片、不写历史。
+            // 这解决了「设备越接越多，关机的那台一直占着位置」的问题 ——
+            // 环位会按启用顺序重排，关掉中间那台不会留下空洞。
+            if (_devices.Count > 0)
+            {
+                _root.Children.Add(MakeSectionTitle("设备"));
+                var deviceHint = MakeText(
+                    "关闭后完全不探测、不占托盘环、不记历史",
+                    9, Faint());
+                deviceHint.TextWrapping = TextWrapping.Wrap;
+                deviceHint.Margin = new Thickness(0, 2, 0, 4);
+                _root.Children.Add(deviceHint);
+
+                foreach (var (key, label) in _devices)
+                {
+                    var box = MakeCheckBox(label, _settings.IsDeviceEnabled(key), "");
+                    string capturedKey = key;
+                    box.Checked += (_, _) =>
+                    {
+                        if (_suppressEvents) return;
+                        ToggleDevice(capturedKey, true);
+                    };
+                    box.Unchecked += (_, _) =>
+                    {
+                        if (_suppressEvents) return;
+                        ToggleDevice(capturedKey, false);
+                    };
+                    _root.Children.Add(box);
+                }
+
+                _root.Children.Add(Divider());
+            }
+
             // ---- 开关项 ----
             _autoStart = MakeCheckBox("开机自启", AutoStart.Enabled,
                 "登录 Windows 后自动在托盘常驻\n（同时写 Run 键与启动文件夹，并清除任务管理器的禁用标志）");
@@ -377,6 +429,21 @@ namespace PeripheralBattery.UI
         }
 
         /// <summary>每次显示前回读真实状态（别的入口可能改过开机自启）</summary>
+        /// <summary>
+        /// 切换一台设备的监控开关。
+        ///
+        /// 必须同时做三件事（少一件用户就会觉得「点了没用」）：
+        ///   1. 改内存里的 Settings 并落盘
+        ///   2. 抛事件让 Program 重算环位 + 立即刷新
+        ///   3. 本节自己的复选框外观已经由 WPF 的 Checked/Unchecked 改好了
+        /// </summary>
+        private void ToggleDevice(string key, bool enabled)
+        {
+            if (!_settings.SetDeviceEnabled(key, enabled)) return;
+            _settings.Save();
+            DeviceToggled?.Invoke(key, enabled);
+        }
+
         public void SyncFromSystem()
         {
             RefreshValues();

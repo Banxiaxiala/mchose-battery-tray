@@ -46,6 +46,24 @@ namespace PeripheralBattery.Hardware
             return (null, ChooseError(viaError, btError));
         }
 
+        // ---------------------------------------------------------- 单通道入口
+        //
+        // 协议链的编排归 DeviceBinder（见 Hardware/DeviceBinder.cs），
+        // 由 DeviceCatalog 的声明决定走哪条。这里只暴露单条通道，
+        // 避免「只配了蓝牙」的键盘仍先做一轮 VIA 枚举（那要先打开 HID 句柄）。
+
+        /// <summary>只走 2.4G / USB 的 VIA 通道</summary>
+        public (Reading? reading, string error) ReadViaOnly()
+        {
+            return ReadWireless();
+        }
+
+        /// <summary>只走蓝牙系统属性通道</summary>
+        public (Reading? reading, string error) ReadBluetoothOnly()
+        {
+            return ReadBluetooth();
+        }
+
         /// <summary>
         /// 两条链路都失败时的文案。
         ///

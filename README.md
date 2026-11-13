@@ -9,7 +9,7 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
 [![Size](https://img.shields.io/badge/single%20exe-425%20KB-blue?style=flat-square)](#性能)
-[![Tests](https://img.shields.io/badge/tests-136%20passed-success?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/tests-152%20passed-success?style=flat-square)](#测试)
 
 <img src="assets/screens/line-24h.png" width="300" alt="外设电量卡片 —— 折线图视图">
 
@@ -280,6 +280,24 @@ PID 来自 [OpenRazer](https://github.com/openrazer/openrazer) 的公开设备�
 原厂固件回 `0xFF` 时本程序如实报「固件没有电量补丁」，绝不显示 0%。
 </details>
 
+### 移植实现（🟡 未验证）
+
+以下协议移植自公开参考实现，代码已接入并通过断言，但**作者没有这些设备**：
+
+| 品牌 | 型号 | 协议 |
+|---|---|---|
+| 高斯 | GS3108T-PRO | VIA 布局 B（cmd `0x20`） |
+| ATK / 怒喵 | V75X | ATK 私有 64B（`0xFF1C/0x92`） |
+| 飞智 | GPA6 | Flydigi 私有（`0xFFA0`） |
+| 漫步者 | 花再 Halo Space | Edifier EC（XOR `0xA5` + 累加和） |
+
+**全部默认关闭**，装了的用户在设置面板里打开。
+这些设备报 issue 时请务必附 `--probe --trace` 输出 —— 没有真机验证过的
+协议最需要的就是「第一次真实运行的结果」。
+
+> 移植时踩到的四个坑（report id、4 位电量、掩码范围、缓冲区残留）
+> 记在 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
+
 ### 通用蓝牙（🔵）
 
 **任意品牌**已配对、且 Windows「设置 → 蓝牙」里显示百分比的外设都能读 ——
@@ -429,7 +447,7 @@ dotnet run --project src\PeripheralBattery.csproj -- --preview card.png line 168
 dotnet run --project tests\PeripheralBattery.Tests.csproj
 ```
 
-**136 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
+**152 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
 `tests/Harness.cs` 里 60 行手写运行器就够，`Main` 返回非 0 表示失败。
 
 覆盖面：

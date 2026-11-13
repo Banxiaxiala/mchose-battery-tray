@@ -30,6 +30,8 @@
     <Compile Include="..\src\Hardware\Protocols.cs" Link="Hardware\Protocols.cs" />
     <!-- 设备表与协议链解析：纯数据，不打开任何句柄 -->
     <Compile Include="..\src\Hardware\DeviceCatalog.cs" Link="Hardware\DeviceCatalog.cs" />
+    <!-- 三家厂商私有协议的纯解析（零 I/O，可脱机断言） -->
+    <Compile Include="..\src\Hardware\VendorProtocols.cs" Link="Hardware\VendorProtocols.cs" />
     <!-- 蓝牙电量只用到 SetupAPI 声明与 MAC 解析，不打开任何句柄 -->
     <Compile Include="..\src\Core\Win32.cs" Link="Core\Win32.cs" />
     <Compile Include="..\src\Core\BluetoothBattery.cs" Link="Core\BluetoothBattery.cs" />

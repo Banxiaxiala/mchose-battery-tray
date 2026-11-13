@@ -24,6 +24,8 @@ src/                         生产代码
     Protocols.cs                三套协议的纯解析/构造（零 I/O）
     Readers.cs                  I/O 编排：罗技两遍槽位探测、雷蛇 64B 收发 → 蓝牙回落
     Max102Reader.cs             VIA 族键盘（维咖/高斯）：2.4G 优先 → 蓝牙回落
+    VendorProtocols.cs          ATK / 飞智 / 漫步者 三家私有协议（纯解析）
+    VendorReader.cs             三家私有协议的通用 I/O 骨架
   Services/
     History.cs                  样本存储、三层聚合（48h/30d/24m）、续航预测
     Settings.cs                 用户设置（间隔/尺寸/开关）持久化

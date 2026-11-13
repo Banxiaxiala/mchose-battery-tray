@@ -44,6 +44,17 @@ namespace PeripheralBattery.Hardware
             // 复用很重要：Reader 内部状态（如超时时钟）不该每轮重建。
             var via = BuildViaReader(definition);
 
+            // 厂商私有协议（ATK / 飞智 / 漫步者）用同一个通用 Reader
+            var vendors = new Dictionary<ProtocolKind, VendorReader>
+            {
+                [ProtocolKind.AtkVendor] = new VendorReader(
+                    VendorReader.VendorKind.Atk, definition.Model),
+                [ProtocolKind.FlydigiVendor] = new VendorReader(
+                    VendorReader.VendorKind.Flydigi, definition.Model),
+                [ProtocolKind.EdifierVendor] = new VendorReader(
+                    VendorReader.VendorKind.Edifier, definition.Model),
+            };
+
             var channels = definition.Channels?.ToList() ?? new List<ProtocolChannel>();
 
             return () =>
@@ -61,7 +72,7 @@ namespace PeripheralBattery.Hardware
 
                     try
                     {
-                        (reading, error) = ReadOne(channel, logi, razer, via);
+                        (reading, error) = ReadOne(channel, logi, razer, via, vendors);
                     }
                     catch (Exception exc)
                     {
@@ -128,7 +139,7 @@ namespace PeripheralBattery.Hardware
         /// <summary>按通道类型分派到对应的 Reader</summary>
         private static (Reading? reading, string error) ReadOne(
             ProtocolChannel channel, LogitechReader logi, RazerReader razer,
-            Max102Reader via)
+            Max102Reader via, Dictionary<ProtocolKind, VendorReader> vendors)
         {
             // 每条通道只调用对应的**单通道**方法：
             // Reader.Read() 是「设备级」的降级链（先私有协议再蓝牙），
@@ -144,6 +155,13 @@ namespace PeripheralBattery.Hardware
 
                 case ProtocolKind.ViaQmk:
                     return Filter(via.ReadViaOnly(), channel);
+
+                case ProtocolKind.AtkVendor:
+                case ProtocolKind.FlydigiVendor:
+                case ProtocolKind.EdifierVendor:
+                    return vendors.TryGetValue(channel.Kind, out var vendor)
+                        ? Filter(vendor.Read(), channel)
+                        : (null, "未装配 " + channel.Kind);
 
                 case ProtocolKind.BluetoothProperty:
                     return ReadBluetooth(channel);

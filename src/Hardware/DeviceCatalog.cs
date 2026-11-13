@@ -32,6 +32,12 @@ namespace PeripheralBattery.Hardware
         ViaQmk = 2,
         /// <summary>蓝牙系统电量属性（BTHLE / BTHENUM）</summary>
         BluetoothProperty = 3,
+        /// <summary>ATK / 怒喵 64 字节私有报文</summary>
+        AtkVendor = 4,
+        /// <summary>飞智 GPA6 私有帧（0xFFA0）</summary>
+        FlydigiVendor = 5,
+        /// <summary>漫步者 EC 私有帧（XOR 掩码 + 累加和）</summary>
+        EdifierVendor = 6,
     }
 
     /// <summary>
@@ -219,10 +225,103 @@ namespace PeripheralBattery.Hardware
                         },
                     },
                 },
-                // 高斯键盘：默认关闭（见定义里的 EnabledByDefault），
-                // 用户装了就在设置里打开。
+                // 以下四台都是「移植实现、未真机验证」，一律默认关闭 ——
+                // 不能让没验证过的设备占用托盘环，否则用户会以为工具坏了。
+                // 装了的用户在设置面板里打开。
                 GanssGs3108(),
+                AtkV75X(),
+                FlydigiDevice(),
+                EdifierHaloSpace(),
             };
+
+        /// <summary>
+        /// ATK V75X 机械键盘（ATK / 怒喵同族）。
+        ///
+        /// 协议移植自 FerrisPulse 的 AtkDeviceHelper（该型号做过抓包）。
+        /// 本仓库**未在真机上验证过**，所以等级是 🟡。
+        /// </summary>
+        private static DeviceDefinition AtkV75X()
+        {
+            return new DeviceDefinition
+            {
+                Key = "atk-v75x",
+                Label = "ATK 键盘",
+                Model = "ATK V75X",
+                EnabledByDefault = false,
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.AtkVendor,
+                        VendorId = AtkVendorProtocol.VendorId,
+                        Model = "ATK V75X",
+                    },
+                    // ATK 键盘也是三模，2.4G 不在时走蓝牙
+                    new()
+                    {
+                        Kind = ProtocolKind.BluetoothProperty,
+                        NamePrefix = "ATK",
+                        ClassicBluetoothOnly = false,
+                        Model = "ATK V75X",
+                    },
+                },
+            };
+        }
+
+        /// <summary>
+        /// 飞智（Flydigi）手柄 / 键盘。
+        ///
+        /// 协议移植自 FerrisPulse 的 FlydigiDeviceHelper。
+        /// 电量是**分档**的（GPA6 私有帧），不是精确百分比 ——
+        /// 换算规则见 FlydigiProtocol.TryParseInfo。
+        /// 本仓库未真机验证，🟡。
+        /// </summary>
+        private static DeviceDefinition FlydigiDevice()
+        {
+            return new DeviceDefinition
+            {
+                Key = "flydigi",
+                Label = "飞智手柄",
+                Model = "飞智 GPA6",
+                EnabledByDefault = false,
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.FlydigiVendor,
+                        VendorId = FlydigiProtocol.VendorId,
+                        Model = "飞智 GPA6",
+                    },
+                },
+            };
+        }
+
+        /// <summary>
+        /// 漫步者 花再 Halo Space 头戴耳机。
+        ///
+        /// 协议移植自 FerrisPulse 的 EdifierDeviceHelper：
+        /// EC 帧 + 载荷 XOR 0xA5 + 累加和校验。
+        /// 本仓库未真机验证，🟡。
+        /// </summary>
+        private static DeviceDefinition EdifierHaloSpace()
+        {
+            return new DeviceDefinition
+            {
+                Key = "edifier-halo-space",
+                Label = "漫步者耳机",
+                Model = "花再 Halo Space",
+                EnabledByDefault = false,
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.EdifierVendor,
+                        VendorId = EdifierProtocol.VendorId,
+                        Model = "花再 Halo Space",
+                    },
+                },
+            };
+        }
 
         /// <summary>
         /// 高斯 GS3108T-PRO 三模键盘。
@@ -383,6 +482,12 @@ namespace PeripheralBattery.Hardware
                     kind = ProtocolKind.ViaQmk; return true;
                 case "bluetooth": case "bluetoothproperty": case "bt":
                     kind = ProtocolKind.BluetoothProperty; return true;
+                case "atk": case "atkvendor":
+                    kind = ProtocolKind.AtkVendor; return true;
+                case "flydigi": case "flydigivendor":
+                    kind = ProtocolKind.FlydigiVendor; return true;
+                case "edifier": case "edifiervendor":
+                    kind = ProtocolKind.EdifierVendor; return true;
                 default:
                     return false;
             }

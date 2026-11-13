@@ -425,6 +425,26 @@ namespace PeripheralBattery.Core
         public static extern bool HidD_GetSerialNumberString(IntPtr hidDeviceObject,
             [Out] char[] buffer, uint bufferLength);
 
+        // ---- Feature Report 读写 ----
+        //
+        // 大多数鼠标走「中断 OUT + 中断 IN」就够了（罗技 HID++、雷蛇 PA/PI）。
+        // 但有一类设备（迈从鼠标、部分国产 8K 鼠标）的控制通道**只有 Feature
+        // Report**：中断端点上什么也收不到，必须用 HidD_SetFeature 写、
+        // HidD_GetFeature 读。
+        //
+        // ⚠️ 注意 HidD_GetFeature 读的是「上一次 SetFeature 之后设备更新的
+        // 那一份」，不是流式数据。设备通常需要几十毫秒处理命令，
+        // 立刻读会拿到旧值 —— 调用方必须留出等待时间 + 校验回显。
+        [DllImport("hid.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool HidD_SetFeature(IntPtr hidDeviceObject,
+            byte[] buffer, uint bufferLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool HidD_GetFeature(IntPtr hidDeviceObject,
+            byte[] buffer, uint bufferLength);
+
         // ---------------------------------------------------------- setupapi
         [StructLayout(LayoutKind.Sequential)]
         public struct GUID { public uint Data1; public ushort Data2; public ushort Data3; public Guid Raw; }

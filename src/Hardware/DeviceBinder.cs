@@ -53,6 +53,8 @@ namespace PeripheralBattery.Hardware
                     VendorReader.VendorKind.Flydigi, definition.Model),
                 [ProtocolKind.EdifierVendor] = new VendorReader(
                     VendorReader.VendorKind.Edifier, definition.Model),
+                [ProtocolKind.MchoseVendor] = new VendorReader(
+                    VendorReader.VendorKind.Mchose, definition.Model),
             };
 
             var channels = definition.Channels?.ToList() ?? new List<ProtocolChannel>();
@@ -159,6 +161,7 @@ namespace PeripheralBattery.Hardware
                 case ProtocolKind.AtkVendor:
                 case ProtocolKind.FlydigiVendor:
                 case ProtocolKind.EdifierVendor:
+                case ProtocolKind.MchoseVendor:
                     return vendors.TryGetValue(channel.Kind, out var vendor)
                         ? Filter(vendor.Read(), channel)
                         : (null, "未装配 " + channel.Kind);

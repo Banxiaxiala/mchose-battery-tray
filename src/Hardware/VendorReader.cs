@@ -35,6 +35,7 @@ namespace PeripheralBattery.Hardware
             Atk,
             Flydigi,
             Edifier,
+            Mchose,
         }
 
         /// <summary>单次读超时。私有协议实测应答在 30ms 内，给 400ms 覆盖唤醒。</summary>
@@ -59,6 +60,8 @@ namespace PeripheralBattery.Hardware
                     return ReadFlydigi();
                 case VendorKind.Edifier:
                     return ReadEdifier();
+                case VendorKind.Mchose:
+                    return ReadMchose();
                 default:
                     return (null, "未知厂商协议 " + _kind);
             }
@@ -266,6 +269,82 @@ namespace PeripheralBattery.Hardware
                         Tracer.Frame("[漫步者] 收 ← （校验/命令号不匹配，丢弃）", frame);
                     }
                     lastError = _model + " 读电量超时";
+                }
+                finally
+                {
+                    device.Dispose();
+                }
+            }
+            return (null, lastError);
+        }
+
+        // ============================================================ 迈从
+        //
+        // 与其他三家最大的不同：不走中断端点，而是 Feature Report 一问一答。
+        // 所以这里既不用 Write 也不用 Read，而是 SetFeature + 等待 + GetFeature。
+        private (Reading? reading, string error) ReadMchose()
+        {
+            var interfaces = HidEnumerator.Enumerate(MchoseMouseProtocol.VendorId)
+                .Concat(HidEnumerator.Enumerate(MchoseMouseProtocol.VendorIdAlt))
+                .Where(i => i.FeatureLength >= MchoseMouseProtocol.ShortPayload + 1)
+                .ToList();
+
+            Tracer.Section(_model + " 迈从接口");
+            foreach (var iface in interfaces) Tracer.Note(iface.ToString());
+
+            if (interfaces.Count == 0)
+            {
+                return (null, "没有找到 " + _model + " 的迈从控制接口");
+            }
+
+            string lastError = _model + " 没有应答";
+            foreach (var iface in interfaces)
+            {
+                HidDevice device;
+                try { device = new HidDevice(iface.Path); }
+                catch (Exception exc)
+                {
+                    lastError = "打开 " + _model + " 失败：" + exc.Message;
+                    continue;
+                }
+
+                try
+                {
+                    // 设备需要几十毫秒处理命令；重试时间递增。
+                    // 立刻读会拿到上一次的数据 —— 这是控制通道的固有特性。
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        byte[] request = MchoseMouseProtocol.BuildIdentityRequest();
+                        Tracer.Frame("[迈从] SetFeature →", request);
+
+                        if (!device.SetFeature(request))
+                        {
+                            lastError = _model + " 写 Feature Report 失败";
+                            continue;
+                        }
+
+                        System.Threading.Thread.Sleep(95 + attempt * 40);
+
+                        var response = new byte[MchoseMouseProtocol.ShortPayload + 1];
+                        response[0] = MchoseMouseProtocol.ReportShort;
+
+                        if (!device.GetFeature(response))
+                        {
+                            Tracer.Note("[迈从] 读回全零，设备可能还没准备好");
+                            continue;
+                        }
+
+                        Tracer.Frame("[迈从] GetFeature ←", response);
+
+                        if (MchoseMouseProtocol.TryParseIdentity(response,
+                                out int percent, out bool charging,
+                                out int vid, out int pid))
+                        {
+                            Tracer.Note($"[迈从] VID={vid:X4} PID={pid:X4} {percent}%");
+                            return (Build(percent, charging, "Feature"), "");
+                        }
+                        lastError = _model + " 应答校验失败";
+                    }
                 }
                 finally
                 {

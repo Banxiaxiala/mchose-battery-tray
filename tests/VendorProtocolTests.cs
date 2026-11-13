@@ -289,6 +289,98 @@ namespace PeripheralBattery.Tests
             Assert.False(EdifierProtocol.TryReadBattery(null, out _), "null 安全");
         }
 
+        // ============================================================ 迈从
+        //
+        // 唯一走 Feature Report 的协议：数据整体异或 0xFF
+
+        [Test]
+        public static void MchoseRequestIsFullyInverted()
+        {
+            var frame = MchoseMouseProtocol.BuildIdentityRequest();
+            Assert.Equal(MchoseMouseProtocol.ShortPayload + 1, frame.Length,
+                "21 字节（1B report id + 20B 载荷）");
+            Assert.Equal(MchoseMouseProtocol.ReportShort, frame[0], "[0] report id 不取反");
+            Assert.Equal((byte)(MchoseMouseProtocol.CmdIdentity ^ 0xFF), frame[1],
+                "[1] 命令号取反");
+
+            // 空白填充字节必须是 0xFF（= 0x00 取反），不是 0
+            for (int i = 2; i < frame.Length; i++)
+            {
+                Assert.Equal((byte)0xFF, frame[i], "填充字节应为 0xFF");
+            }
+        }
+
+        [Test]
+        public static void MchoseParsesIdentity()
+        {
+            var response = new byte[MchoseMouseProtocol.ShortPayload + 1];
+            response[0] = MchoseMouseProtocol.ReportShort;
+            response[1] = (byte)(MchoseMouseProtocol.CmdIdentity ^ 0xFF);
+
+            // 构造解掩码后的载荷：VID 0x3837 / PID 0x1234 / 电量 77 / 充电 1
+            var payload = new byte[MchoseMouseProtocol.ShortPayload - 1];
+            payload[0] = 0x37; payload[1] = 0x38;
+            payload[2] = 0x34; payload[3] = 0x12;
+            payload[9] = 77;
+            payload[10] = 1;
+
+            for (int i = 0; i < payload.Length; i++)
+            {
+                response[i + 2] = (byte)(payload[i] ^ 0xFF);
+            }
+
+            Assert.True(MchoseMouseProtocol.TryParseIdentity(response,
+                out int percent, out bool charging, out int vid, out int pid),
+                "应解析成功");
+            Assert.Equal(77, percent, "电量在解掩码后的 [9]");
+            Assert.True(charging, "充电标志");
+            Assert.Equal(0x3837, vid, "VID");
+            Assert.Equal(0x1234, pid, "PID");
+        }
+
+        [Test]
+        public static void MchoseRejectsWrongEcho()
+        {
+            // 命令号回显不符 → 必须拒绝，否则会把主动状态帧当电量
+            var response = new byte[MchoseMouseProtocol.ShortPayload + 1];
+            response[0] = MchoseMouseProtocol.ReportShort;
+            response[1] = 0x00;
+            Assert.False(MchoseMouseProtocol.TryParseIdentity(response,
+                out _, out _, out _, out _), "回显不符要拒绝");
+        }
+
+        [Test]
+        public static void MchoseRejectsUnreadyDevice()
+        {
+            // VID/PID 全零 = 设备还没准备好，不能当成 0% 电量
+            var response = new byte[MchoseMouseProtocol.ShortPayload + 1];
+            response[0] = MchoseMouseProtocol.ReportShort;
+            response[1] = (byte)(MchoseMouseProtocol.CmdIdentity ^ 0xFF);
+            for (int i = 2; i < response.Length; i++) response[i] = 0xFF;  // 全零载荷取反
+
+            Assert.False(MchoseMouseProtocol.TryParseIdentity(response,
+                out _, out _, out _, out _), "VID/PID 全零要拒绝");
+        }
+
+        [Test]
+        public static void MchoseRejectsOutOfRangeBattery()
+        {
+            var response = new byte[MchoseMouseProtocol.ShortPayload + 1];
+            response[0] = MchoseMouseProtocol.ReportShort;
+            response[1] = (byte)(MchoseMouseProtocol.CmdIdentity ^ 0xFF);
+
+            var payload = new byte[MchoseMouseProtocol.ShortPayload - 1];
+            payload[0] = 0x37; payload[1] = 0x38;   // 有 VID，排除「未就绪」
+            payload[9] = 200;                        // 电量越界
+            for (int i = 0; i < payload.Length; i++)
+            {
+                response[i + 2] = (byte)(payload[i] ^ 0xFF);
+            }
+
+            Assert.False(MchoseMouseProtocol.TryParseIdentity(response,
+                out _, out _, out _, out _), "电量 > 100 要拒绝");
+        }
+
         [Test]
         public static void EdifierMaskIsSymmetric()
         {

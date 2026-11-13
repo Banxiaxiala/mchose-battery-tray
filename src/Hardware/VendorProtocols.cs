@@ -86,6 +86,100 @@ namespace PeripheralBattery.Hardware
     }
 
     /// <summary>
+    /// 迈从（MCHOSE）鼠标的控制通道：**Feature Report + 数据异或 0xFF**。
+    ///
+    /// 与前面几家最大的不同：它不用中断端点，而是
+    ///   `HidD_SetFeature` 写命令 → 等 ~95ms → `HidD_GetFeature` 读结果。
+    ///
+    /// 帧格式（20 字节，report id 0x11）：
+    ///   请求  [0]=0x11  [1..]=payload ^ 0xFF，其余补 0xFF
+    ///   应答  [0]=0x11  [1]=命令号 ^ 0xFF  [2..]=payload ^ 0xFF
+    ///
+    /// 三个必须照做的细节：
+    ///   1. **整帧异或 0xFF**，包括空白填充字节（所以空白是 0x00 的取反）
+    ///   2. 回显校验用 `response[1] == body[0] ^ 0xFF`，不校验会把
+    ///      设备主动更新的状态帧当成应答
+    ///   3. **写完必须等**（实测 95ms 起步，重试时递增）。
+    ///      控制通道是同步的，立刻读拿到的是上一次的数据
+    ///
+    /// 出处：FerrisPulse MchoseMouseHelper。
+    /// 本仓库未真机验证，等级 🟡。
+    /// </summary>
+    public static class MchoseMouseProtocol
+    {
+        /// <summary>厂商号；ALT 是部分批次的另一个 VID</summary>
+        public const int VendorId = 0x3837;
+        public const int VendorIdAlt = 0x5253;
+
+        /// <summary>短报告：20 字节 payload + 1 字节 report id</summary>
+        public const byte ReportShort = 0x11;
+        /// <summary>长报告：64 字节 payload + 1 字节 report id</summary>
+        public const byte ReportLong = 0x12;
+
+        /// <summary>读设备信息（含电量）</summary>
+        public const byte CmdIdentity = 0x06;
+
+        /// <summary>短报告载荷长度</summary>
+        public const int ShortPayload = 20;
+
+        /// <summary>
+        /// 构造 21 字节请求（1B report id + 20B 载荷）。
+        /// 空字节补 0xFF，载荷整体异或 0xFF。
+        /// </summary>
+        public static byte[] BuildIdentityRequest()
+        {
+            var frame = new byte[ShortPayload + 1];
+            for (int i = 0; i < frame.Length; i++) frame[i] = 0xFF;
+            frame[0] = ReportShort;
+            frame[1] = (byte)(CmdIdentity ^ 0xFF);
+            return frame;
+        }
+
+        /// <summary>
+        /// 解析 identity 应答。
+        ///
+        /// 解掩码后的载荷布局：
+        ///   [0..1] VID   [2..3] PID   [4..7] 固件版本
+        ///   [8]    状态标志  [9] 电量 0..100  [10] 充电 0/1
+        ///
+        /// 校验要点：VID/PID 全零说明设备还没准备好；电量越界说明这不是
+        /// 电量帧 —— 两种情况都必须返回失败，绝不能当 0% 用。
+        /// </summary>
+        public static bool TryParseIdentity(byte[]? response, out int percent,
+            out bool charging, out int vendorId, out int productId)
+        {
+            percent = -1;
+            charging = false;
+            vendorId = 0;
+            productId = 0;
+
+            if (response == null || response.Length < ShortPayload + 1) return false;
+            if (response[0] != ReportShort) return false;
+            if (response[1] != (byte)(CmdIdentity ^ 0xFF)) return false;
+
+            // 解掩码：payload 从 response[2] 开始，共 19 字节
+            var payload = new byte[ShortPayload - 1];
+            for (int i = 0; i < payload.Length; i++)
+            {
+                payload[i] = (byte)(response[i + 2] ^ 0xFF);
+            }
+            if (payload.Length < 11) return false;
+
+            vendorId = payload[0] | (payload[1] << 8);
+            productId = payload[2] | (payload[3] << 8);
+            int battery = payload[9];
+            int charge = payload[10];
+
+            if (vendorId == 0 && productId == 0) return false;
+            if (battery < 0 || battery > 100) return false;
+
+            percent = battery;
+            charging = charge == 1;
+            return true;
+        }
+    }
+
+    /// <summary>
     /// 飞智（Flydigi）GPA6 私有帧。
     ///
     ///   帧头  5A A5（可带前导 00）  命令 0x01 = 设备信息

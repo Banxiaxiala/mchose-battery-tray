@@ -9,8 +9,8 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](#授权)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
-[![Size](https://img.shields.io/badge/single%20exe-460%20KB-blue?style=flat-square)](#性能)
-[![Tests](https://img.shields.io/badge/tests-154%20passed-success?style=flat-square)](#测试)
+[![Size](https://img.shields.io/badge/single%20exe-462%20KB-blue?style=flat-square)](#性能)
+[![Tests](https://img.shields.io/badge/tests-159%20passed-success?style=flat-square)](#测试)
 [![Devices](https://img.shields.io/badge/devices-60%2B%20models-informational?style=flat-square)](#兼容性)
 
 <img src="assets/tray-taskbar.svg" width="680" alt="外设电量 —— 任务栏托盘图标（三环）与放大特写">
@@ -302,12 +302,13 @@ PID 来自 [OpenRazer](https://github.com/openrazer/openrazer) 的公开设备�
 | ATK / 怒喵 | V75X | ATK 私有 64B（`0xFF1C/0x92`） |
 | 飞智 | GPA6 | Flydigi 私有（`0xFFA0`） |
 | 漫步者 | 花再 Halo Space | Edifier EC（XOR `0xA5` + 累加和） |
+| 迈从 | A5 V2 Ultra / G75 PRO / G87 V2 | 迈从 Feature（全帧 XOR `0xFF`，走 Feature Report） |
 
 **全部默认关闭**，装了的用户在设置面板里打开。
 这些设备报 issue 时请务必附 `--probe --trace` 输出 —— 没有真机验证过的
 协议最需要的就是「第一次真实运行的结果」。
 
-> 移植时踩到的四个坑（report id、4 位电量、掩码范围、缓冲区残留）
+> 移植时踩到的五个坑（report id、4 位电量、掩码范围、缓冲区残留、Feature Report 时序）
 > 记在 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
 
 ### 通用蓝牙（🔵）
@@ -459,7 +460,7 @@ dotnet run --project src\PeripheralBattery.csproj -- --preview card.png line 168
 dotnet run --project tests\PeripheralBattery.Tests.csproj
 ```
 
-**154 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
+**159 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
 `tests/Harness.cs` 里 60 行手写运行器就够，`Main` 返回非 0 表示失败。
 
 覆盖面：
@@ -477,7 +478,7 @@ dotnet run --project tests\PeripheralBattery.Tests.csproj
 
 | 指标 | 数值 |
 |---|---|
-| 单文件 exe | 460 KB（framework-dependent） |
+| 单文件 exe | 462 KB（framework-dependent） |
 | 运行时代码 | 约 9,100 行（25 个文件） |
 | 内存占用 | 私有约 39 MB / 工作集约 94 MB（WPF + 亚克力实测） |
 | 罗技读取 | ~130 ms（含两遍槽位探测） |

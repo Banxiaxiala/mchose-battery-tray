@@ -38,6 +38,8 @@ namespace PeripheralBattery.Hardware
         FlydigiVendor = 5,
         /// <summary>漫步者 EC 私有帧（XOR 掩码 + 累加和）</summary>
         EdifierVendor = 6,
+        /// <summary>迈从鼠标 Feature Report 控制通道（数据异或 0xFF）</summary>
+        MchoseVendor = 7,
     }
 
     /// <summary>
@@ -232,6 +234,7 @@ namespace PeripheralBattery.Hardware
                 AtkV75X(),
                 FlydigiDevice(),
                 EdifierHaloSpace(),
+                MchoseMouse(),
             };
 
         /// <summary>
@@ -318,6 +321,33 @@ namespace PeripheralBattery.Hardware
                         Kind = ProtocolKind.EdifierVendor,
                         VendorId = EdifierProtocol.VendorId,
                         Model = "花再 Halo Space",
+                    },
+                },
+            };
+        }
+
+        /// <summary>
+        /// 迈从 A5 V2 Ultra 8K 电竞鼠标（含 G75 PRO / G87 V2 同族）。
+        ///
+        /// 协议移植自 FerrisPulse 的 MchoseMouseHelper。
+        /// 特点是走 Feature Report 而不是中断端点，见 MchoseMouseProtocol。
+        /// 本仓库未真机验证，🟡。
+        /// </summary>
+        private static DeviceDefinition MchoseMouse()
+        {
+            return new DeviceDefinition
+            {
+                Key = "mchose-mouse",
+                Label = "迈从鼠标",
+                Model = "迈从 A5 V2 Ultra",
+                EnabledByDefault = false,
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.MchoseVendor,
+                        VendorId = MchoseMouseProtocol.VendorId,
+                        Model = "迈从 A5 V2 Ultra",
                     },
                 },
             };
@@ -488,6 +518,8 @@ namespace PeripheralBattery.Hardware
                     kind = ProtocolKind.FlydigiVendor; return true;
                 case "edifier": case "edifiervendor":
                     kind = ProtocolKind.EdifierVendor; return true;
+                case "mchose": case "mchosevendor":
+                    kind = ProtocolKind.MchoseVendor; return true;
                 default:
                     return false;
             }

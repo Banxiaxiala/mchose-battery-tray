@@ -136,6 +136,7 @@
 | ATK / 怒喵 | V75X | `320F:*` | ATK 私有 | `0xFF1C/0x92` 64B，cmd `0x0011`，电量 `[8]` 充电 `[9]` | FerrisPulse `AtkDeviceHelper` |
 | 飞智 | GPA6 | `37D7:*` | Flydigi 私有 | `0xFFA0`，帧头 `5A A5`，cmd `0x01` | FerrisPulse `FlydigiDeviceHelper` |
 | 漫步者 | 花再 Halo Space | `2D99:*` | Edifier EC | 64B，`2E AA EC`，XOR `0xA5` + 累加和 | FerrisPulse `EdifierDeviceHelper` |
+| 迈从 | A5 V2 Ultra / G75 PRO / G87 V2 | `3837:*` / `5253:*` | 迈从 Feature | **Feature Report**（不是中断端点），全帧 XOR `0xFF`，cmd `0x06` | FerrisPulse `MchoseMouseHelper` |
 
 ### 移植过程中发现的坑
 
@@ -162,7 +163,16 @@ hidapi 的 `read()` 不返回 report id，Win32 的 `ReadFile` 会把它放在�
 设备 64 字节缓冲会留着上一条报文，必须按长度字段截取，
 不能整帧当载荷解析。
 
-以上四条都有对应断言锁住（`tests/VendorProtocolTests.cs`）。
+**5. 迈从走 Feature Report，不是中断端点**
+
+它既不用 `WriteFile` 也不用 `ReadFile`，而是 `HidD_SetFeature` 写、
+`HidD_GetFeature` 读。而且：
+
+- 数据**整体异或 0xFF**，包括空白填充（所以空白是 `0xFF` 不是 `0x00`）
+- 写完必须**等 ~95ms** 再读，控制通道是同步的，立刻读拿到的是上一次的值
+- 读回全零 = 设备还没准备好，不能当成 0% 电量
+
+以上五条都有对应断言锁住（`tests/VendorProtocolTests.cs`）。
 
 ## 通用蓝牙（所有品牌）
 

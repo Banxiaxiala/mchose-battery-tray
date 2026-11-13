@@ -213,6 +213,53 @@ namespace PeripheralBattery.Core
         }
 
         /// <summary>写一条输出报告（中断 OUT）。返回写入字节数，失败返回 -1</summary>
+        /// <summary>
+        /// 写 Feature Report。
+        ///
+        /// 与 <see cref="Write"/> 的区别：Write 走中断 OUT 端点（流式、有超时、
+        /// 可重叠），Feature 走控制端点（一问一答、同步、无超时）。
+        /// 有些设备的控制通道只暴露 Feature —— 中断端点什么也收不到。
+        ///
+        /// buffer[0] 必须是 report id。
+        /// </summary>
+        public bool SetFeature(byte[] data)
+        {
+            if (IsClosed || data == null || data.Length == 0) return false;
+            try
+            {
+                return Win32.HidD_SetFeature(_handle, data, (uint)data.Length);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 读 Feature Report。buffer[0] 传 report id，返回时被填充为完整报告。
+        /// 失败或全是 0 时返回 false —— 设备没更新数据时读回来是全零。
+        /// </summary>
+        public bool GetFeature(byte[] buffer)
+        {
+            if (IsClosed || buffer == null || buffer.Length == 0) return false;
+            try
+            {
+                if (!Win32.HidD_GetFeature(_handle, buffer, (uint)buffer.Length))
+                {
+                    return false;
+                }
+                foreach (byte value in buffer)
+                {
+                    if (value != 0) return true;
+                }
+                return false;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         public int Write(byte[] data, double timeout = 0.5)
         {
             if (IsClosed) return -1;

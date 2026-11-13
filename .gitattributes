@@ -1,0 +1,34 @@
+﻿# ─────────────────────────────────────────────────────────────────────────
+#  GitHub Linguist 配置
+#
+#  为什么需要这个文件：
+#  本仓库 fork 自一个 **Python** 项目（2.4G-battery-viewer），fork 创建时
+#  GitHub 会把上游的初始提交一起算进语言统计，于是仓库首页显示
+#  「Python 100%」—— 而实际代码 37 个 .cs、只有 2 个辅助 .py。
+#
+#  下面做了两件事：
+#    1. 把 tools/ 下的 Python 辅助脚本标记为「非项目语言」
+#       （它们是构建期工具，不是产品的一部分）
+#    2. 显式声明 .cs 为 C#，避免任何推断偏差
+#
+#  注意：这些规则只影响 GitHub 的语言统计与 diff 显示，
+#  不影响本地构建。
+# ─────────────────────────────────────────────────────────────────────────
+
+# 产品代码就是 C#
+*.cs            linguist-language=C#
+*.csproj        linguist-language=XML
+*.xaml          linguist-language=C#
+
+# tools/ 下是构建期辅助脚本（出图、文件清单自检），
+# 不是产品的一部分，不计入语言统计
+tools/*.py      linguist-documentation
+tools/*.py      linguist-vendored=false
+
+# 文档与资源不计入代码统计
+docs/**         linguist-documentation
+assets/**       linguist-documentation
+*.md            linguist-documentation
+
+# 构建脚本按 Shell 归类（.bat 实际是 cmd 脚本）
+*.bat           linguist-language=Batchfile

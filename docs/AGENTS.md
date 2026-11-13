@@ -227,6 +227,24 @@
 - 图表的 min/max 文案来自固定的 24 小时窗口（`Analysis`），
   而折线可能正在看 2 年。标题必须跟着图表范围变，否则两边都不自洽。
 
+## 9d. GitHub 语言统计（fork 陷阱）
+
+本仓库 fork 自一个 Python 项目，GitHub 会把上游初始提交也算进语言统计，
+于是首页长期显示「**Python 100%**」，而实际是 37 个 `.cs` / 2 个辅助 `.py`。
+
+`.gitattributes` 里的 `linguist-*` 规则解决这件事：
+
+- `tools/*.py linguist-documentation` —— 构建期辅助脚本不算产品代码
+- `*.cs linguist-language=C#` —— 显式声明，不留推断空间
+- `docs/ assets/ *.md linguist-documentation` —— 文档不算代码
+
+⚠️ 改了 `.gitattributes` 后 GitHub 要重新统计，可能需要几分钟到几小时。
+如果长时间不更新，可以在仓库设置里确认 linguist 未被禁用，
+或推一次只含 `.gitattributes` 的提交触发重算。
+
+⚠️ 千万别通过「删掉 tools/*.py」来解决 —— 那两个脚本是构建工具
+（出图、文件清单自检），删了文档就没法重新生成。
+
 ## 10. 工作区与文件卫生
 
 - **根目录纯净**：只允许 `build.bat`、`.gitignore`、`NuGet.Config`、

@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](#授权)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
 [![Size](https://img.shields.io/badge/single%20exe-493%20KB-blue?style=flat-square)](#性能)
-[![Tests](https://img.shields.io/badge/tests-225%20passed-success?style=flat-square)](#测试)
+[![Tests](https://img.shields.io/badge/tests-232%20passed-success?style=flat-square)](#测试)
 [![Devices](https://img.shields.io/badge/devices-60%2B%20models-informational?style=flat-square)](#兼容性)
 
 <img src="assets/tray-taskbar.svg" width="680" alt="外设电量 —— 任务栏托盘图标（三环）与放大特写">
@@ -468,7 +468,7 @@ dotnet run --project src\PeripheralBattery.csproj -- --preview card.png line 168
 dotnet run --project tests\PeripheralBattery.Tests.csproj
 ```
 
-**225 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
+**232 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
 `tests/Harness.cs` 里 60 行手写运行器就够，`Main` 返回非 0 表示失败。
 
 覆盖面：

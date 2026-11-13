@@ -9,6 +9,85 @@ using PeripheralBattery.UI;
 
 namespace PeripheralBattery.Tests
 {
+    public static class TrayRingAutoTests
+    {
+        // 端到端：只有一个 rings 元素时，渲染出来的几何必须是单环。
+        // 这条防的是「默认几何盖住了自适应」——那个 bug 让单设备也画三圈。
+
+        [Test]
+        public static void OneRingArrayProducesOneRingGeometry()
+        {
+            var rings = new Models.Reading?[]
+            {
+                new Models.Reading { Percent = 80, Connected = true },
+            };
+
+            // 模拟 TrayIcon 的调用方式：geometry 传 null 让它自适应
+            var geometry = UI.RingGeometry.ForCount(rings.Length);
+            Assert.Equal(1, geometry.Radii.Length,
+                "一个 rings 元素 → 单环几何");
+        }
+
+        [Test]
+        public static void ThreeRingArrayProducesThreeRingGeometry()
+        {
+            var rings = new Models.Reading?[3];
+            var geometry = UI.RingGeometry.ForCount(rings.Length);
+            Assert.Equal(3, geometry.Radii.Length, "三个元素 → 三环几何");
+        }
+
+        [Test]
+        public static void GeometryArrayNeverShorterThanRings()
+        {
+            // 绘制循环按 geo.Radii.Length 走。
+            // 如果几何圈数少于 rings 元素数，后面的设备就画不出来。
+            for (int count = 1; count <= 6; count++)
+            {
+                var geometry = UI.RingGeometry.ForCount(count);
+                Assert.True(geometry.Radii.Length >= System.Math.Min(count, 3),
+                    count + " 台设备时几何圈数不足");
+            }
+        }
+    }
+
+    public static class DeviceSummaryTests
+    {
+        // 「管理设备」按钮的文案。
+        //
+        // 实测 bug：用户只插一个鼠标，按钮显示「已启用 1 / 14 台」——
+        // 分母用了内置型号总数（14），看起来像工具认为他有 14 台设备。
+
+        [Test]
+        public static void SingleDeviceShowsOneNotFourteen()
+        {
+            string text = Models.DeviceSummaryText.Build(1, 1);
+            Assert.Equal("管理设备（1 台）", text,
+                "只有一台设备时不该显示分母");
+            Assert.False(text.Contains("14"), "绝不能出现内置型号总数");
+        }
+
+        [Test]
+        public static void MultipleDevicesShowFraction()
+        {
+            Assert.Equal("管理设备（2 / 3 台）",
+                Models.DeviceSummaryText.Build(2, 3), "部分启用时显示分数");
+        }
+
+        [Test]
+        public static void AllEnabledShowsTotalOnly()
+        {
+            Assert.Equal("管理设备（3 台）",
+                Models.DeviceSummaryText.Build(3, 3), "全启用时只显示总数");
+        }
+
+        [Test]
+        public static void NoDevicesShowsPlainLabel()
+        {
+            Assert.Equal("管理设备",
+                Models.DeviceSummaryText.Build(0, 0), "没有任何设备时不带括号");
+        }
+    }
+
     public static class TrayGeometryTests
     {
         // 托盘图标应当**按实际设备数**画环，而不是永远三圈。

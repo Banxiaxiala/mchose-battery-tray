@@ -11,6 +11,25 @@ using System.Collections.Generic;
 
 namespace PeripheralBattery.Models
 {
+    /// <summary>
+    /// 「管理设备」按钮的文案。
+    ///
+    /// 放在 Models 而不是 SettingsPanel：测试项目不链接 WPF 窗体，
+    /// 但这条文案的语义（分母不能是内置型号总数）必须能被断言。
+    /// 实测 bug：用户只插一个鼠标，按钮却显示「已启用 1 / 14 台」。
+    /// </summary>
+    public static class DeviceSummaryText
+    {
+        /// <summary>按 (启用数, 可见数) 生成按钮文案</summary>
+        public static string Build(int enabled, int visible)
+        {
+            if (visible <= 0) return "管理设备";
+            return enabled == visible
+                ? "管理设备（" + visible + " 台）"
+                : "管理设备（" + enabled + " / " + visible + " 台）";
+        }
+    }
+
     /// <summary>托盘悬停提示的拼装与降级</summary>
     public static class TooltipText
     {

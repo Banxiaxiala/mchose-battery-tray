@@ -155,13 +155,30 @@ namespace PeripheralBattery.UI
         /// </summary>
         private const int IconSize = 32;
 
-        private RingGeometry _ringGeometry = TrayIconArt.Default;
+        /// <summary>
+        /// 显式指定的环形几何；null = 按实际环数自适应。
+        ///
+        /// ⚠️ 默认必须是 null，不能是 TrayIconArt.Default。
+        /// 之前默认给了 Default（三环），于是 Render 里
+        /// 「geometry == null 才按环数自适应」的分支永远不成立 ——
+        /// 只有一台设备也照样画三圈。这是实测报上来的 bug。
+        /// </summary>
+        private RingGeometry? _ringGeometry;
 
         /// <summary>替换图标几何参数（调参 / 预览用）</summary>
         public void SetRingGeometry(RingGeometry geometry)
         {
-            if (geometry == null || _ringGeometry.SameAs(geometry)) return;
-            _ringGeometry = geometry;
+            if (geometry == null)
+            {
+                // 显式要求「恢复自适应」
+                if (_ringGeometry == null) return;
+                _ringGeometry = null;
+            }
+            else
+            {
+                if (_ringGeometry != null && _ringGeometry.SameAs(geometry)) return;
+                _ringGeometry = geometry;
+            }
         }
 
         /// <summary>WPF 颜色 → GDI+ 颜色（两套 Color 类型不通用）</summary>

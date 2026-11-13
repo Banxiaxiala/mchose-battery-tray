@@ -500,6 +500,11 @@ namespace PeripheralBattery
                 //
                 // 判定「连过」：有过读数（哪怕现在离线），或者是用户
                 // 主动开着的（他可能想先配好再插设备）。
+                //
+                // ⚠️ 注意 slot.Enabled 是「用户开着」而不是「现在连着」。
+                // 首次探测会把没连的标成 disabled，所以这里能正确过滤掉
+                // 那 13 台 —— 但如果用户手动开启了某台不存在的设备，
+                // 它会留在列表里（这是期望行为：他明确要管这台）。
                 if (reading == null && !slot.Enabled) continue;
 
                 string identity = reading?.Identity ?? "";
@@ -522,6 +527,10 @@ namespace PeripheralBattery
                 });
             }
             _settingsPanel.SetDeviceRows(rows);
+
+            // 主面板按钮上的计数也要跟着更新 ——
+            // 否则用户只插一个鼠标，却一直看到「已启用 1 / 14 台」。
+            _settingsPanel.RefreshDeviceSummary();
         }
 
         /// <summary>
@@ -1036,6 +1045,11 @@ namespace PeripheralBattery
                 reading.Identity = _settings.ResolveChannelIdentity(
                     slot.HistoryKey, reading.Identity);
                 reading.Nickname = _settings.GetNickname(reading.Identity);
+
+                // 存回 slot：后面「界面将显示几台」要靠它判断「连过」。
+                // 不存的话那段统计永远是 0 —— 这正是上一版计数错误的来源之一。
+                slot.Latest = reading;
+
                 Console.WriteLine("  " + (reading.Name.Length > 0 ? reading.Name : "(未命名)"));
                 Console.WriteLine("    协议    " + reading.Transport);
                 if (reading.Identity.Length > 0)

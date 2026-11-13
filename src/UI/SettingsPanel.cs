@@ -384,16 +384,15 @@ namespace PeripheralBattery.UI
                 // 为什么分出去：设备可能十几台，把复选框全铺在主页面会让
                 // 设置面板长到几百像素，挤掉真正常用的项（间隔、配色、开关）。
                 // 主页面只显示「已启用 N / 共 M 台」，点开才看细节。
-                int enabledCount = 0;
-                foreach (var (key, _) in _devices)
-                {
-                    if (_settings.IsDeviceEnabled(key)) enabledCount++;
-                }
+                // 计数只能用「实际连过/连着的」设备，不能拿 _devices.Count ——
+                // 那是启动时创建的 14 个静态槽位，跟用户真实有几台设备无关。
+                // 之前显示「已启用 1 / 14 台」就是踩了这个：分母是内置型号总数，
+                // 用户一看就以为工具认为他有 14 台设备。
+                var (enabledNow, visibleNow) = DeviceCounts();
 
-                var manageButton = new Button
+                _manageButton = new Button
                 {
-                    Content = "管理设备（已启用 " + enabledCount + " / "
-                        + _devices.Count + " 台）",
+                    Content = DeviceSummaryText(enabledNow, visibleNow),
                     FontSize = 10.5,
                     Height = 26,
                     Padding = new Thickness(12, 0, 12, 0),
@@ -407,8 +406,8 @@ namespace PeripheralBattery.UI
                         ? Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)
                         : Color.FromArgb(0x24, 0x00, 0x00, 0x00)),
                 };
-                manageButton.Click += (_, _) => OpenDeviceManager();
-                _root.Children.Add(manageButton);
+                _manageButton.Click += (_, _) => OpenDeviceManager();
+                _root.Children.Add(_manageButton);
 
                 _root.Children.Add(Divider());
             }
@@ -831,6 +830,66 @@ namespace PeripheralBattery.UI
             return new ControlTemplate(typeof(Button)) { VisualTree = root };
         }
 
+        /// <summary>主面板上的「管理设备」按钮，用于刷新计数</summary>
+        private Button? _manageButton;
+
+        /// <summary>
+        /// 界面上应当出现的设备：**连过的**（有读数）或用户主动开着的。
+        ///
+        /// 14 个内置型号全算进来会让计数失真 —— 用户只插一个鼠标，
+        /// 却看到「1 / 14 台」，会以为工具在说他有 14 台设备。
+        /// 二级面板的列表也用这套过滤，两边口径一致。
+        /// </summary>
+        private List<string> VisibleDevices()
+        {
+            var keys = new List<string>();
+            if (_deviceRows.Count > 0)
+            {
+                // Program 已经把「连过的」筛好了
+                foreach (var row in _deviceRows) keys.Add(row.Key);
+                return keys;
+            }
+
+            // 还没读过设备（刚启动）：退回静态清单里默认启用的那些，
+            // 至少不会显示成 0 台
+            foreach (var (key, _) in _devices)
+            {
+                if (_settings.IsDeviceEnabled(key)) keys.Add(key);
+            }
+            return keys;
+        }
+
+        /// <summary>刷新「管理设备」按钮上的计数（设备状态变化时调用）</summary>
+        public void RefreshDeviceSummary()
+        {
+            if (_manageButton == null) return;
+            var (enabled, visible) = DeviceCounts();
+            _manageButton.Content = DeviceSummaryText(enabled, visible);
+        }
+
+        /// <summary>
+        /// 「管理设备」按钮的文案。
+        ///
+        /// 抽成公开静态函数是为了能脱机断言 —— 这个分母曾经写成了
+        /// 内置型号总数（14），用户只插一个鼠标却看到「1 / 14 台」。
+        /// </summary>
+        public static string DeviceSummaryText(int enabled, int visible)
+        {
+            return PeripheralBattery.Models.DeviceSummaryText.Build(enabled, visible);
+        }
+
+        /// <summary>当前的 (启用数, 可见数)</summary>
+        public (int enabled, int visible) DeviceCounts()
+        {
+            var visible = VisibleDevices();
+            int enabled = 0;
+            foreach (var key in visible)
+            {
+                if (_settings.IsDeviceEnabled(key)) enabled++;
+            }
+            return (enabled, visible.Count);
+        }
+
         /// <summary>二级面板：设备清单</summary>
         private Window? _deviceWindow;
 
@@ -1098,7 +1157,8 @@ namespace PeripheralBattery.UI
             window.Closed += (_, _) =>
             {
                 _deviceWindow = null;
-                // 主面板上的「已启用 N 台」要跟着更新，否则显示过期数字
+                // 主面板上的计数要跟着更新，否则显示过期数字
+                RefreshDeviceSummary();
                 _onDevicesChanged?.Invoke();
             };
 

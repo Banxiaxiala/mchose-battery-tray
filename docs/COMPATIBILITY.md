@@ -141,6 +141,8 @@
 | 华硕 ROG | PELTA 耳机 / Scope II RX | `0B05:1B84` / `1AB5` | ROG | 64/65B，`0xFF00`，帧头 `CC 12`，电量 key 7 / 充电 key 8 | FerrisPulse `AsusDeviceHelper` |
 | HyperX | 飓风3 无线耳机 | `03F0:05B7` / `0C9D` | HyperX | 62B，report id `0x66`，`0x89→0x0D` 电量、`0x8A→0x0C` 充电 | FerrisPulse `HyperXDeviceHelper` |
 | 宏碁 | VK M3 / OMR331 | `249A:*` / `248A:*` | Acer | 33B，`0xFF01`，命令 `0x10`，电量 `[+13]`，**充电时填 100 当哨兵** | FerrisPulse `AcerDeviceHelper` |
+| 迈从（键盘） | G75 PRO / G87 V2 / Z75S | `3837:*` | 迈从键盘 | 0x13 帧 + 累加和；**G75 PRO 端点只收 20 字节** | FerrisPulse `MchoseDeviceHelper` |
+| NuPhy | Air75 V2 / Halo75 V2 / WH80 | 按产品名匹配 | NuPhy | 65B，`00 55` 帧头，**两步**：先读模式再按模式算偏移 | FerrisPulse `NuphyDeviceHelper` |
 
 ### 移植过程中发现的坑
 
@@ -189,7 +191,27 @@ hidapi 的 `read()` 不返回 report id，Win32 的 `ReadFile` 会把它放在�
 缓冲区带不带 report id 会差一个字节，命令 `0x10` 可能在 `[0]`、`[1]` 或 `[2]`。
 写死下标必然有一边读错。
 
-**9. 迈从走 Feature Report，不是中断端点**
+**9. 迈从「鼠标」与「键盘」是两套协议**
+
+同一个厂商，鼠标走 Feature Report（数据 XOR 0xFF），键盘走中断端点
+（0x13 帧 + 累加和）。按厂商名归一套实现会两边都读不对。
+
+**10. 迈从键盘 G75 PRO 的端点只收 20 字节**
+
+同一协议两套长度：多数型号 65 字节，G75 PRO 恰好 20 字节。
+发 65 过去它直接忽略，看起来像「设备没应答」。
+
+**11. 迈从键盘应答的命令号 bit7 是标志位**
+
+比对时必须 `& 0x7F`，否则带标志位的合法应答会被当成不匹配。
+
+**12. NuPhy 读电量要两步**
+
+先 `0x04` 读连接模式，再用 `0x05` 按「模式 × 64 + 32」算偏移读电量。
+跳过第一步就不知道偏移，会读到别的字段。而且电量必须 `& 0x7F` ——
+bit7 是标志位，不屏蔽会读出 128+ 的假值。
+
+**13. 迈从鼠标走 Feature Report，不是中断端点**
 
 它既不用 `WriteFile` 也不用 `ReadFile`，而是 `HidD_SetFeature` 写、
 `HidD_GetFeature` 读。而且：
@@ -198,7 +220,7 @@ hidapi 的 `read()` 不返回 report id，Win32 的 `ReadFile` 会把它放在�
 - 写完必须**等 ~95ms** 再读，控制通道是同步的，立刻读拿到的是上一次的值
 - 读回全零 = 设备还没准备好，不能当成 0% 电量
 
-以上九条都有对应断言锁住（`tests/VendorProtocolTests.cs`）。
+以上十三条都有对应断言锁住（`tests/VendorProtocolTests.cs`）。
 
 ## 通用蓝牙（所有品牌）
 

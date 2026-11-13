@@ -86,6 +86,176 @@ namespace PeripheralBattery.Hardware
     }
 
     /// <summary>
+    /// 迈从（MCHOSE）键盘：G75 PRO / G87 V2 / Z75S。
+    ///
+    /// 与迈从**鼠标**是两套完全不同的协议（鼠标走 Feature Report），
+    /// 这里走中断端点 + 累加和校验：
+    ///
+    ///   请求  [0]=0x13(report id) [1]=0x4A(读电量) … [19]=前 19 字节和的低 8 位
+    ///   应答  [0]=0x13 [1]=0x4A(bit7 是标志位，比对时要 &0x7F)
+    ///         [5]=电量 0..100  [6]=状态（0x01 放电 / 0x10 充电）
+    ///         [19]=校验和
+    ///
+    /// ⚠️ G75 PRO 的端点要求**恰好 20 字节**，不是 65 —— 同一个协议两套长度。
+    /// 发 65 字节过去它会直接忽略。
+    ///
+    /// 出处：FerrisPulse MchoseDeviceHelper。
+    /// 本仓库未真机验证，🟡。
+    /// </summary>
+    public static class MchoseKeyboardProtocol
+    {
+        public const byte ReportId = 0x13;
+        /// <summary>2.4G 读电量命令</summary>
+        public const byte CmdWirelessBattery = 0x4A;
+
+        /// <summary>标准报告长度</summary>
+        public const int ReportLength = 65;
+        /// <summary>G75 PRO 专用长度（短帧）</summary>
+        public const int ShortReportLength = 20;
+
+        public const int BatteryOffset = 5;
+        public const int StateOffset = 6;
+
+        /// <summary>放电</summary>
+        public const byte StateDischarging = 0x01;
+        /// <summary>充电</summary>
+        public const byte StateCharging = 0x10;
+
+        /// <summary>构造标准 65 字节请求</summary>
+        public static byte[] BuildQuery()
+        {
+            var frame = new byte[ReportLength];
+            frame[0] = ReportId;
+            frame[1] = CmdWirelessBattery;
+            frame[2] = 0x01;
+            int sum = 0;
+            for (int i = 0; i <= 18; i++) sum += frame[i];
+            frame[19] = (byte)(sum & 0xFF);
+            return frame;
+        }
+
+        /// <summary>构造 G75 PRO 的 20 字节请求</summary>
+        public static byte[] BuildShortQuery()
+        {
+            var frame = new byte[ShortReportLength];
+            frame[0] = ReportId;
+            frame[1] = CmdWirelessBattery;
+            int sum = 0;
+            for (int i = 0; i < ShortReportLength - 1; i++) sum += frame[i];
+            frame[ShortReportLength - 1] = (byte)(sum & 0xFF);
+            return frame;
+        }
+
+        /// <summary>
+        /// 解析应答。<paramref name="frameLength"/> 决定用哪套校验范围
+        /// （20 或 65），两种都要支持。
+        /// </summary>
+        public static bool TryParse(byte[]? report, int frameLength,
+            out int percent, out bool charging)
+        {
+            percent = -1;
+            charging = false;
+            if (report == null) return false;
+            if (frameLength != ReportLength && frameLength != ShortReportLength) return false;
+            if (report.Length < frameLength) return false;
+            if (report[0] != ReportId) return false;
+
+            // bit7 是标志位，命令号比对必须屏蔽掉
+            if ((report[1] & 0x7F) != CmdWirelessBattery) return false;
+
+            int sum = 0;
+            for (int i = 0; i < frameLength - 1; i++) sum += report[i];
+            if ((byte)(sum & 0xFF) != report[frameLength - 1]) return false;
+
+            int battery = report[BatteryOffset];
+            byte state = report[StateOffset];
+            if (battery < 0 || battery > 100) return false;
+            if (state != StateDischarging && state != StateCharging) return false;
+
+            percent = battery;
+            charging = state == StateCharging;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// NuPhy（努斐）三模键盘：WH80 / Air75 V2 / Halo75 V2 / Air60 V2 等。
+    ///
+    /// 65 字节，帧头 `0x00 0x55`，读电量要**两步**：
+    ///   1. cmd `0x04` 读当前连接模式 → 应答 [9] 是模式号（0..3）
+    ///   2. cmd `0x05` 读电量，偏移 = `模式 × 64 + 32`
+    ///      应答 [1] 必须是 0xAA 或 0x55，[2] 必须是 cmd 回显
+    ///      [9] 的低 7 位才是电量（bit7 是标志位）
+    ///
+    /// ⚠️ 两步不能省：跳过第 1 步就不知道偏移，直接读会拿到别的字段。
+    /// ⚠️ 电量必须 `& 0x7F`：bit7 是标志位，不屏蔽会读出 128+ 的假值。
+    ///
+    /// 出处：FerrisPulse NuphyDeviceHelper。
+    /// 本仓库未真机验证，🟡。
+    /// </summary>
+    public static class NuphyProtocol
+    {
+        public const int ReportLength = 65;
+
+        public const byte Magic0 = 0x00;
+        public const byte Magic1 = 0x55;
+
+        /// <summary>读连接模式</summary>
+        public const byte CmdGetMode = 0x04;
+        /// <summary>读电量</summary>
+        public const byte CmdGetBattery = 0x05;
+
+        /// <summary>电量字段在应答里的偏移</summary>
+        public const int BatteryFieldOffset = 9;
+
+        public static byte[] BuildQuery(byte command, ushort offset, byte length)
+        {
+            var frame = new byte[ReportLength];
+            frame[0] = Magic0;
+            frame[1] = Magic1;
+            frame[2] = command;
+            frame[3] = 0x00;
+            frame[5] = length;
+            frame[6] = (byte)(offset & 0xFF);
+            frame[7] = (byte)((offset >> 8) & 0xFF);
+            frame[8] = 0x00;
+            return frame;
+        }
+
+        /// <summary>从模式应答里取模式号（0..3）；越界返回 -1</summary>
+        public static int ParseMode(byte[]? report)
+        {
+            if (report == null || report.Length < 10) return -1;
+            int mode = report[9];
+            return mode >= 0 && mode <= 3 ? mode : -1;
+        }
+
+        /// <summary>模式 → 电量字段偏移</summary>
+        public static ushort BatteryOffsetForMode(int mode)
+        {
+            return (ushort)(mode * 64 + 32);
+        }
+
+        /// <summary>
+        /// 解析电量应答。
+        /// [1] 必须是 0xAA/0x55，[2] 必须是 0x05 回显，
+        /// [9] 低 7 位是电量。
+        /// </summary>
+        public static bool TryParseBattery(byte[]? report, out int percent)
+        {
+            percent = -1;
+            if (report == null || report.Length < BatteryFieldOffset + 1) return false;
+            if (report[1] != 0xAA && report[1] != 0x55) return false;
+            if (report[2] != CmdGetBattery) return false;
+
+            int value = report[BatteryFieldOffset] & 0x7F;
+            if (value > 100) return false;
+            percent = value;
+            return true;
+        }
+    }
+
+    /// <summary>
     /// 宏碁（Acer）VK M3 系列无线鼠标。
     ///
     /// 33 字节（report id 0x00 + 32B 载荷），`usagePage 0xFF01 / usage 0x10`：

@@ -63,6 +63,10 @@ namespace PeripheralBattery.Hardware
                     VendorReader.VendorKind.HyperX, definition.Model),
                 [ProtocolKind.AcerVendor] = new VendorReader(
                     VendorReader.VendorKind.Acer, definition.Model),
+                [ProtocolKind.MchoseKeyboardVendor] = new VendorReader(
+                    VendorReader.VendorKind.MchoseKeyboard, definition.Model),
+                [ProtocolKind.NuphyVendor] = new VendorReader(
+                    VendorReader.VendorKind.Nuphy, definition.Model),
             };
 
             var channels = definition.Channels?.ToList() ?? new List<ProtocolChannel>();
@@ -174,6 +178,8 @@ namespace PeripheralBattery.Hardware
                 case ProtocolKind.AsusVendor:
                 case ProtocolKind.HyperXVendor:
                 case ProtocolKind.AcerVendor:
+                case ProtocolKind.MchoseKeyboardVendor:
+                case ProtocolKind.NuphyVendor:
                     return vendors.TryGetValue(channel.Kind, out var vendor)
                         ? Filter(vendor.Read(), channel)
                         : (null, "未装配 " + channel.Kind);

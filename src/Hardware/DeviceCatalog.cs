@@ -48,6 +48,10 @@ namespace PeripheralBattery.Hardware
         HyperXVendor = 10,
         /// <summary>宏碁 VK M3 33 字节报文（命令 0x10）</summary>
         AcerVendor = 11,
+        /// <summary>迈从键盘 0x13 帧（累加和校验）</summary>
+        MchoseKeyboardVendor = 12,
+        /// <summary>NuPhy 65 字节帧（00 55 帧头）</summary>
+        NuphyVendor = 13,
     }
 
     /// <summary>
@@ -247,6 +251,8 @@ namespace PeripheralBattery.Hardware
                 AsusRogPelta(),
                 HyperXCloud3(),
                 AcerVkM3(),
+                MchoseKeyboard(),
+                NuphyKeyboard(),
             };
 
         /// <summary>
@@ -333,6 +339,59 @@ namespace PeripheralBattery.Hardware
                         Kind = ProtocolKind.EdifierVendor,
                         VendorId = EdifierProtocol.VendorId,
                         Model = "花再 Halo Space",
+                    },
+                },
+            };
+        }
+
+        /// <summary>
+        /// 迈从 G75 PRO / G87 V2 / Z75S 键盘。
+        ///
+        /// 与迈从**鼠标**是两套完全不同的协议 —— 鼠标走 Feature Report，
+        /// 键盘走中断端点 + 累加和校验。
+        /// 本仓库未真机验证，🟡。
+        /// </summary>
+        private static DeviceDefinition MchoseKeyboard()
+        {
+            return new DeviceDefinition
+            {
+                Key = "mchose-keyboard",
+                Label = "迈从键盘",
+                Model = "迈从 G75 PRO",
+                EnabledByDefault = false,
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.MchoseKeyboardVendor,
+                        VendorId = MchoseMouseProtocol.VendorId,
+                        Model = "迈从 G75 PRO",
+                    },
+                },
+            };
+        }
+
+        /// <summary>
+        /// NuPhy 三模键盘（WH80 / Air75 V2 / Halo75 V2 / Air60 V2）。
+        ///
+        /// 读电量要两步：先 0x04 读连接模式，再 0x05 按模式算偏移读电量。
+        /// 本仓库未真机验证，🟡。
+        /// </summary>
+        private static DeviceDefinition NuphyKeyboard()
+        {
+            return new DeviceDefinition
+            {
+                Key = "nuphy",
+                Label = "NuPhy 键盘",
+                Model = "NuPhy Air75 V2",
+                EnabledByDefault = false,
+                Channels = new List<ProtocolChannel>
+                {
+                    new()
+                    {
+                        Kind = ProtocolKind.NuphyVendor,
+                        NamePrefix = "NuPhy",
+                        Model = "NuPhy Air75 V2",
                     },
                 },
             };
@@ -648,6 +707,10 @@ namespace PeripheralBattery.Hardware
                     kind = ProtocolKind.HyperXVendor; return true;
                 case "acer": case "acervendor":
                     kind = ProtocolKind.AcerVendor; return true;
+                case "mchosekeyboard": case "mchose-kb":
+                    kind = ProtocolKind.MchoseKeyboardVendor; return true;
+                case "nuphy": case "nuphyvendor":
+                    kind = ProtocolKind.NuphyVendor; return true;
                 default:
                     return false;
             }

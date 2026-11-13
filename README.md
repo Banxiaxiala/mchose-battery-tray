@@ -9,8 +9,8 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](#授权)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
-[![Size](https://img.shields.io/badge/single%20exe-473%20KB-blue?style=flat-square)](#性能)
-[![Tests](https://img.shields.io/badge/tests-177%20passed-success?style=flat-square)](#测试)
+[![Size](https://img.shields.io/badge/single%20exe-477%20KB-blue?style=flat-square)](#性能)
+[![Tests](https://img.shields.io/badge/tests-187%20passed-success?style=flat-square)](#测试)
 [![Devices](https://img.shields.io/badge/devices-60%2B%20models-informational?style=flat-square)](#兼容性)
 
 <img src="assets/tray-taskbar.svg" width="680" alt="外设电量 —— 任务栏托盘图标（三环）与放大特写">
@@ -307,13 +307,16 @@ PID 来自 [OpenRazer](https://github.com/openrazer/openrazer) 的公开设备�
 | 华硕 ROG | PELTA 耳机 / Scope II RX | ROG 64/65B（`CC 12` 帧头） |
 | HyperX | 飓风3 无线耳机 | HyperX 62B（report id `0x66`） |
 | 宏碁 | VK M3 / OMR331 | Acer 33B（充电时填 100 当哨兵） |
+| 迈从（键盘） | G75 PRO / G87 V2 / Z75S | 迈从键盘 0x13 帧（G75 PRO 只收 20 字节） |
+| NuPhy | Air75 V2 / Halo75 V2 / WH80 | NuPhy 65B（两步：先读模式再算偏移） |
 
 **全部默认关闭**，装了的用户在设置面板里打开。
 这些设备报 issue 时请务必附 `--probe --trace` 输出 —— 没有真机验证过的
 协议最需要的就是「第一次真实运行的结果」。
 
-> 移植时踩到的九个坑（report id、4 位电量、掩码范围、缓冲区残留、
-> Feature Report 时序、255 哨兵、占位伪应答、100 哨兵、命令字节扫描）
+> 移植时踩到的十三个坑（report id、4 位电量、掩码范围、缓冲区残留、
+> Feature Report 时序、255 哨兵、占位伪应答、100 哨兵、命令字节扫描、
+> 同厂商两套协议、20 字节端点、bit7 标志位、两步读偏移）
 > 记在 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
 
 ### 通用蓝牙（🔵）
@@ -465,7 +468,7 @@ dotnet run --project src\PeripheralBattery.csproj -- --preview card.png line 168
 dotnet run --project tests\PeripheralBattery.Tests.csproj
 ```
 
-**177 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
+**187 项脱机断言，零硬件依赖。** 不用 xunit / nunit / MSTest ——
 `tests/Harness.cs` 里 60 行手写运行器就够，`Main` 返回非 0 表示失败。
 
 覆盖面：
@@ -483,7 +486,7 @@ dotnet run --project tests\PeripheralBattery.Tests.csproj
 
 | 指标 | 数值 |
 |---|---|
-| 单文件 exe | 473 KB（framework-dependent） |
+| 单文件 exe | 477 KB（framework-dependent） |
 | 运行时代码 | 约 9,100 行（25 个文件） |
 | 内存占用 | 私有约 39 MB / 工作集约 94 MB（WPF + 亚克力实测） |
 | 罗技读取 | ~130 ms（含两遍槽位探测） |

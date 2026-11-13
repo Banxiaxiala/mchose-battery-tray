@@ -289,6 +289,147 @@ namespace PeripheralBattery.Tests
             Assert.False(EdifierProtocol.TryReadBattery(null, out _), "null 安全");
         }
 
+        // ============================================================ 迈从键盘
+
+        [Test]
+        public static void MchoseKeyboardBuildsChecksumFrame()
+        {
+            var frame = MchoseKeyboardProtocol.BuildQuery();
+            Assert.Equal(MchoseKeyboardProtocol.ReportLength, frame.Length, "65 字节");
+            Assert.Equal(MchoseKeyboardProtocol.ReportId, frame[0], "[0] report id 0x13");
+            Assert.Equal(MchoseKeyboardProtocol.CmdWirelessBattery, frame[1], "[1] 命令 0x4A");
+
+            int sum = 0;
+            for (int i = 0; i <= 18; i++) sum += frame[i];
+            Assert.Equal((byte)(sum & 0xFF), frame[19], "[19] 累加和（前 19 字节）");
+        }
+
+        [Test]
+        public static void MchoseKeyboardShortFrameIs20Bytes()
+        {
+            // G75 PRO 端点只收 20 字节，发 65 会被忽略
+            var frame = MchoseKeyboardProtocol.BuildShortQuery();
+            Assert.Equal(20, frame.Length, "短帧必须恰好 20 字节");
+
+            int sum = 0;
+            for (int i = 0; i < 19; i++) sum += frame[i];
+            Assert.Equal((byte)(sum & 0xFF), frame[19], "校验覆盖前 19 字节");
+        }
+
+        [Test]
+        public static void MchoseKeyboardParsesBattery()
+        {
+            var reply = new byte[20];
+            reply[0] = MchoseKeyboardProtocol.ReportId;
+            reply[1] = MchoseKeyboardProtocol.CmdWirelessBattery;
+            reply[MchoseKeyboardProtocol.BatteryOffset] = 66;
+            reply[MchoseKeyboardProtocol.StateOffset] = MchoseKeyboardProtocol.StateCharging;
+
+            int sum = 0;
+            for (int i = 0; i < 19; i++) sum += reply[i];
+            reply[19] = (byte)(sum & 0xFF);
+
+            Assert.True(MchoseKeyboardProtocol.TryParse(reply, 20,
+                out int percent, out bool charging), "应解析成功");
+            Assert.Equal(66, percent, "电量在 [5]");
+            Assert.True(charging, "状态 0x10 = 充电");
+        }
+
+        [Test]
+        public static void MchoseKeyboardRejectsBadChecksum()
+        {
+            var reply = new byte[20];
+            reply[0] = MchoseKeyboardProtocol.ReportId;
+            reply[1] = MchoseKeyboardProtocol.CmdWirelessBattery;
+            reply[MchoseKeyboardProtocol.BatteryOffset] = 66;
+            reply[MchoseKeyboardProtocol.StateOffset] = MchoseKeyboardProtocol.StateDischarging;
+            reply[19] = 0x00;   // 故意写错
+
+            Assert.False(MchoseKeyboardProtocol.TryParse(reply, 20, out _, out _),
+                "校验和错必须拒绝");
+        }
+
+        [Test]
+        public static void MchoseKeyboardMasksBit7OfCommand()
+        {
+            // 应答命令号的 bit7 是标志位，比对时必须屏蔽
+            var reply = new byte[20];
+            reply[0] = MchoseKeyboardProtocol.ReportId;
+            reply[1] = (byte)(MchoseKeyboardProtocol.CmdWirelessBattery | 0x80);
+            reply[MchoseKeyboardProtocol.BatteryOffset] = 50;
+            reply[MchoseKeyboardProtocol.StateOffset] = MchoseKeyboardProtocol.StateDischarging;
+
+            int sum = 0;
+            for (int i = 0; i < 19; i++) sum += reply[i];
+            reply[19] = (byte)(sum & 0xFF);
+
+            Assert.True(MchoseKeyboardProtocol.TryParse(reply, 20,
+                out int percent, out _), "bit7 置位也要能解析");
+            Assert.Equal(50, percent, "电量");
+        }
+
+        // ============================================================ NuPhy
+
+        [Test]
+        public static void NuphyBuildQueryLayout()
+        {
+            var frame = NuphyProtocol.BuildQuery(NuphyProtocol.CmdGetBattery, 96, 1);
+            Assert.Equal(NuphyProtocol.ReportLength, frame.Length, "65 字节");
+            Assert.Equal((byte)0x00, frame[0], "[0] 0x00");
+            Assert.Equal((byte)0x55, frame[1], "[1] 0x55");
+            Assert.Equal(NuphyProtocol.CmdGetBattery, frame[2], "[2] 命令");
+            Assert.Equal((byte)1, frame[5], "[5] 长度");
+            Assert.Equal((byte)96, frame[6], "[6] 偏移低字节");
+            Assert.Equal((byte)0, frame[7], "[7] 偏移高字节");
+        }
+
+        [Test]
+        public static void NuphyOffsetDependsOnMode()
+        {
+            // 偏移 = 模式 × 64 + 32，跳过读模式这一步就不知道偏移
+            Assert.Equal((ushort)32, NuphyProtocol.BatteryOffsetForMode(0), "模式 0");
+            Assert.Equal((ushort)96, NuphyProtocol.BatteryOffsetForMode(1), "模式 1");
+            Assert.Equal((ushort)160, NuphyProtocol.BatteryOffsetForMode(2), "模式 2");
+            Assert.Equal((ushort)224, NuphyProtocol.BatteryOffsetForMode(3), "模式 3");
+        }
+
+        [Test]
+        public static void NuphyParsesMode()
+        {
+            var reply = new byte[65];
+            reply[9] = 2;
+            Assert.Equal(2, NuphyProtocol.ParseMode(reply), "模式从 [9] 取");
+
+            reply[9] = 9;   // 越界
+            Assert.Equal(-1, NuphyProtocol.ParseMode(reply), "越界返回 -1");
+        }
+
+        [Test]
+        public static void NuphyParsesBatteryMaskingBit7()
+        {
+            var reply = new byte[65];
+            reply[1] = 0xAA;
+            reply[2] = NuphyProtocol.CmdGetBattery;
+            // bit7 是标志位，0xC8 = 200 → &0x7F = 72
+            reply[NuphyProtocol.BatteryFieldOffset] = 0xC8;
+
+            Assert.True(NuphyProtocol.TryParseBattery(reply, out int percent),
+                "应解析成功");
+            Assert.Equal(72, percent, "必须屏蔽 bit7");
+        }
+
+        [Test]
+        public static void NuphyRejectsWrongEcho()
+        {
+            var reply = new byte[65];
+            reply[1] = 0xAA;
+            reply[2] = NuphyProtocol.CmdGetMode;   // 不是电量命令
+            reply[NuphyProtocol.BatteryFieldOffset] = 72;
+
+            Assert.False(NuphyProtocol.TryParseBattery(reply, out _),
+                "命令回显不符要拒绝");
+        }
+
         // ============================================================ 宏碁
         //
         // 33 字节，命令字节位置要扫描（带/不带 report id）

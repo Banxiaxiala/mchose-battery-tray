@@ -40,6 +40,8 @@ namespace PeripheralBattery.Hardware
             Asus,
             HyperX,
             Acer,
+            MchoseKeyboard,
+            Nuphy,
         }
 
         /// <summary>单次读超时。私有协议实测应答在 30ms 内，给 400ms 覆盖唤醒。</summary>
@@ -82,6 +84,10 @@ namespace PeripheralBattery.Hardware
                     return ReadHyperX();
                 case VendorKind.Acer:
                     return ReadAcer();
+                case VendorKind.MchoseKeyboard:
+                    return ReadMchoseKeyboard();
+                case VendorKind.Nuphy:
+                    return ReadNuphy();
                 default:
                     return (null, "未知厂商协议 " + _kind);
             }
@@ -718,6 +724,170 @@ namespace PeripheralBattery.Hardware
         /// 每个 Reader 实例独立，进程重启后第一次充电会显示 100% —— 可接受。
         /// </summary>
         private int _lastRealPercent = -1;
+
+        // ============================================================ 迈从键盘
+        private (Reading? reading, string error) ReadMchoseKeyboard()
+        {
+            var interfaces = HidEnumerator.Enumerate(MchoseMouseProtocol.VendorId)
+                .Where(i => i.OutputLength >= MchoseKeyboardProtocol.ShortReportLength)
+                .ToList();
+
+            Tracer.Section(_model + " 迈从键盘接口");
+            foreach (var iface in interfaces) Tracer.Note(iface.ToString());
+
+            if (interfaces.Count == 0)
+            {
+                return (null, "没有找到 " + _model + " 的迈从键盘接口");
+            }
+
+            string lastError = _model + " 没有应答";
+            foreach (var iface in interfaces)
+            {
+                HidDevice device;
+                try { device = new HidDevice(iface.Path); }
+                catch (Exception exc)
+                {
+                    lastError = "打开 " + _model + " 失败：" + exc.Message;
+                    continue;
+                }
+
+                try
+                {
+                    int length = iface.OutputLength > 0
+                        ? iface.OutputLength : MchoseKeyboardProtocol.ReportLength;
+
+                    // G75 PRO 只收 20 字节，其它型号用 65。
+                    // 先按端点能力选：端点只支持 20 就发短帧。
+                    bool useShort = length <= MchoseKeyboardProtocol.ShortReportLength;
+                    int frameLength = useShort
+                        ? MchoseKeyboardProtocol.ShortReportLength
+                        : MchoseKeyboardProtocol.ReportLength;
+                    byte[] request = useShort
+                        ? MchoseKeyboardProtocol.BuildShortQuery()
+                        : MchoseKeyboardProtocol.BuildQuery();
+
+                    Tracer.Frame($"[迈从键盘 {frameLength}B] 发 →", request);
+                    if (device.Write(request, 0.3) < 0)
+                    {
+                        lastError = _model + " 写入失败";
+                        continue;
+                    }
+
+                    var deadline = Stopwatch.StartNew();
+                    while (deadline.Elapsed.TotalSeconds < QueryTimeout)
+                    {
+                        var frame = device.Read(frameLength, 0.05);
+                        if (frame.Length < frameLength) continue;
+
+                        if (MchoseKeyboardProtocol.TryParse(frame, frameLength,
+                                out int percent, out bool charging))
+                        {
+                            Tracer.Frame($"[迈从键盘] 收 ← ({percent}% 充电={charging})", frame);
+                            return (Build(percent, charging, "MCHOSE"), "");
+                        }
+                        Tracer.Frame("[迈从键盘] 收 ← （校验/命令号不匹配，丢弃）", frame);
+                    }
+                    lastError = _model + " 读电量超时";
+                }
+                finally
+                {
+                    device.Dispose();
+                }
+            }
+            return (null, lastError);
+        }
+
+        // ============================================================ NuPhy
+        private (Reading? reading, string error) ReadNuphy()
+        {
+            var interfaces = HidEnumerator.Enumerate()
+                .Where(i => i.Product != null
+                         && i.Product.IndexOf("NuPhy", StringComparison.OrdinalIgnoreCase) >= 0
+                         && i.OutputLength >= NuphyProtocol.ReportLength)
+                .ToList();
+
+            Tracer.Section(_model + " NuPhy 接口");
+            foreach (var iface in interfaces) Tracer.Note(iface.ToString());
+
+            if (interfaces.Count == 0)
+            {
+                return (null, "没有找到 " + _model + " 的 NuPhy 接口");
+            }
+
+            string lastError = _model + " 没有应答";
+            foreach (var iface in interfaces)
+            {
+                HidDevice device;
+                try { device = new HidDevice(iface.Path); }
+                catch (Exception exc)
+                {
+                    lastError = "打开 " + _model + " 失败：" + exc.Message;
+                    continue;
+                }
+
+                try
+                {
+                    // 第一步：读连接模式（决定电量字段偏移）
+                    int mode = -1;
+                    byte[] modeQuery = NuphyProtocol.BuildQuery(
+                        NuphyProtocol.CmdGetMode, 0, 16);
+                    Tracer.Frame("[NuPhy mode] 发 →", modeQuery);
+                    if (device.Write(modeQuery, 0.3) >= 0)
+                    {
+                        var deadline = Stopwatch.StartNew();
+                        while (deadline.Elapsed.TotalSeconds < QueryTimeout)
+                        {
+                            var frame = device.Read(NuphyProtocol.ReportLength, 0.05);
+                            if (frame.Length == 0) continue;
+                            mode = NuphyProtocol.ParseMode(frame);
+                            if (mode >= 0)
+                            {
+                                Tracer.Frame($"[NuPhy mode] 收 ← 模式={mode}", frame);
+                                break;
+                            }
+                        }
+                    }
+                    if (mode < 0)
+                    {
+                        lastError = _model + " 读连接模式失败";
+                        continue;
+                    }
+
+                    // 第二步：按模式算偏移，读电量
+                    ushort offset = NuphyProtocol.BatteryOffsetForMode(mode);
+                    byte[] query = NuphyProtocol.BuildQuery(NuphyProtocol.CmdGetBattery,
+                        offset, 1);
+                    Tracer.Frame($"[NuPhy 电量 offset={offset}] 发 →", query);
+                    if (device.Write(query, 0.3) < 0)
+                    {
+                        lastError = _model + " 写入失败";
+                        continue;
+                    }
+
+                    var deadline2 = Stopwatch.StartNew();
+                    while (deadline2.Elapsed.TotalSeconds < QueryTimeout)
+                    {
+                        var frame = device.Read(NuphyProtocol.ReportLength, 0.05);
+                        if (frame.Length == 0) continue;
+
+                        if (NuphyProtocol.TryParseBattery(frame, out int percent))
+                        {
+                            Tracer.Frame($"[NuPhy] 收 ← ({percent}%)", frame);
+                            // NuPhy 的电量应答里没有独立的充电位，
+                            // 参考实现用「电量 >= 100」推断，这里不猜测。
+                            return (Build(percent, false, "NuPhy"), "");
+                        }
+                        Tracer.Frame("[NuPhy] 收 ← （帧头/命令不匹配，丢弃）", frame);
+                    }
+                    lastError = _model + " 读电量超时";
+                }
+                finally
+                {
+                    device.Dispose();
+                }
+            }
+            return (null, lastError);
+        }
 
         private Reading Build(int percent, bool charging, string transport)
         {

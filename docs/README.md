@@ -428,7 +428,7 @@ dist/                     构建产物（git 忽略）
 | `HANDOVER.md` | **交接文档**：装环境、改代码、排查手册、已知限制 |
 | `assets/architecture.svg` | 五层架构图（`tools/draw_diagrams.py` 生成） |
 | `assets/tray-states.svg` | 托盘图标各状态（`--tray` 生成，矢量） |
-| `assets/tray-taskbar.svg` | 任务栏实景 + 放大特写（`--traybar` 生成，README 首图） |
+| `assets/tray-taskbar.svg` | 任务栏实景 + 放大特写（`--traybar` 生成，README 首图）<br>固定深色任务栏：这张图放在浅色页面背景上，跟随主题会让文字溶进背景 |
 | `assets/fallback-chain.svg` | 读取降级链示意 |
 | `assets/dataflow.svg` | 一次刷新的数据流 |
 | `assets/storage-layers.svg` | 历史三层聚合示意 |

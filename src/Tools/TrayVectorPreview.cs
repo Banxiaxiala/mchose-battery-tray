@@ -145,16 +145,22 @@ namespace PeripheralBattery.Tools
         /// </summary>
         public static void RunBar(string outputPath, bool light = false)
         {
-            const int height = 268;
-            const int width = 720;
+            // 布局要点：这张图会放在 README 的浅色背景上，
+            // 所以**固定用深色任务栏**（深色底在浅色页面上最醒目），
+            // 而不是跟随系统主题 —— 跟随浅色时深色文字会溶进页面背景里。
+            const int width = 680;
             const int iconSize = 24;
-            const int barHeight = 96;
-            const int zoom = 5;  // 特写放大倍数
+            const int barHeight = 72;
+            const int zoom = 5;              // 特写放大倍数
+            const int legendBand = 212;      // 特写区高度（6 倍特写 144 + 标题与留白）
+            const int height = barHeight + legendBand;
 
-            string barColor = light ? "#F3F3F3" : "#202020";
-            string border = light ? "#D8D8D8" : "#2E2E2E";
-            string text = light ? "#1A1A1A" : "#FFFFFF";
-            string muted = light ? "#3C3C3C" : "#C8C8C8";
+            // 见上面注释：不用 light 参数决定底色，恒用深色。
+            // light 参数只影响特写区底板（浅色页面下用深灰，深色页面下用更深）。
+            string barColor = "#1F1F1F";
+            string border = "#3A3A3A";
+            string text = "#FFFFFF";
+            string muted = "#B8B8B8";
 
             var sb = new StringBuilder();
             sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
@@ -179,7 +185,7 @@ namespace PeripheralBattery.Tools
             }
 
             // 右端：系统图标位（网络 / 音量 / 电池的抽象形状，不画细节）
-            double rightEdge = width - 16;
+            double rightEdge = width - 20;
 
             // 时钟
             sb.AppendLine($"<text x=\"{N(rightEdge) }\" y=\"{N(barHeight / 2.0 + 4)}\" " +
@@ -192,7 +198,7 @@ namespace PeripheralBattery.Tools
             {
                 Make(82), Make(51), Make(24),
             };
-            double iconX = rightEdge - 96;
+            double iconX = rightEdge - 104;
             sb.AppendLine($"<g transform=\"translate({N(iconX)},{N(barHeight / 2.0 - iconSize / 2.0)})\">");
             AppendIcon(sb, rings, text, iconSize);
             sb.AppendLine("</g>");
@@ -203,38 +209,40 @@ namespace PeripheralBattery.Tools
                 "stroke-width=\"1.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>");
 
             // ---- 下半：放大特写 ----
-            // 24px 的图标在整条任务栏里只有很小一块，首图必须给个特写，
-            // 否则读者根本看不出「三圈」这回事。
+            //
+            // 这一半是画在 **README 的页面背景** 上的（不是任务栏里），
+            // 所以配色必须按「页面是浅色」来定：深色文字 + 浅色底板。
+            // 之前这里错用了任务栏的白色文字，放进 README 后图例完全看不见。
             double zoomSize = iconSize * zoom;
-            double zoomX = 40;
-            double zoomY = barHeight + 40;
+            double zoomX = 44;
+            double zoomY = barHeight + 48;
 
-            sb.AppendLine($"<text x=\"{N(zoomX)}\" y=\"{N(barHeight + 26)}\" " +
-                $"font-size=\"11\" fill=\"{(light ? "#6A6A6A" : "#9A9A9A")}\">" +
-                $"↑ 托盘图标 · 放大 {zoom} 倍</text>");
+            sb.AppendLine($"<text x=\"{N(zoomX)}\" y=\"{N(barHeight + 34)}\" " +
+                "font-size=\"12\" fill=\"#57606A\">" +
+                $"托盘图标 · 放大 {zoom} 倍</text>");
 
-            // 特写底板（浅色主题下用白底，深色用稍亮的深灰）
+            // 特写底板：浅色圆角块，与深色任务栏形成对比
             sb.AppendLine($"<rect x=\"{N(zoomX - 12)}\" y=\"{N(zoomY - 12)}\" " +
                 $"width=\"{N(zoomSize + 24)}\" height=\"{N(zoomSize + 24)}\" rx=\"10\" " +
-                $"fill=\"{(light ? "#FFFFFF" : "#181818")}\" " +
-                $"stroke=\"{(light ? "#E2E2E2" : "#303030")}\"/>");
+                "fill=\"#1F1F1F\" stroke=\"#3A3A3A\"/>");
 
             sb.AppendLine($"<g transform=\"translate({N(zoomX)},{N(zoomY)})\">");
-            AppendIcon(sb, rings, text, (int)zoomSize);
+            // 特写在深色底板里，图标当然还是白线
+            AppendIcon(sb, rings, "#FFFFFF", (int)zoomSize);
             sb.AppendLine("</g>");
 
-            // 特写右侧：三圈分别代表什么
-            double legendX = zoomX + zoomSize + 28;
-            double legendY = zoomY + 22;
+            // 图例：深色文字，画在页面背景上
+            double legendX = zoomX + zoomSize + 34;
+            double legendY = zoomY + 26;
             string[] legendLines = { "外环  鼠标", "中环  耳机", "内环  键盘" };
             for (int i = 0; i < legendLines.Length; i++)
             {
-                sb.AppendLine($"<text x=\"{N(legendX)}\" y=\"{N(legendY + i * 22)}\" " +
-                    $"font-size=\"12\" fill=\"{(light ? "#1A1A1A" : "#E6E6E6")}\">" +
+                sb.AppendLine($"<text x=\"{N(legendX)}\" y=\"{N(legendY + i * 24)}\" " +
+                    "font-size=\"13\" fill=\"#1F2328\">" +
                     $"{Esc(legendLines[i])}</text>");
             }
-            sb.AppendLine($"<text x=\"{N(legendX)}\" y=\"{N(legendY + legendLines.Length * 22 + 8)}\" " +
-                $"font-size=\"11\" fill=\"{(light ? "#7A7A7A" : "#9A9A9A")}\">" +
+            sb.AppendLine($"<text x=\"{N(legendX)}\" y=\"{N(legendY + legendLines.Length * 24 + 10)}\" " +
+                "font-size=\"12\" fill=\"#57606A\">" +
                 "弧长 = 电量百分比 · 充电时整圈点亮</text>");
 
             sb.AppendLine("</svg>");

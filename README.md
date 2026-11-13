@@ -13,7 +13,7 @@
 [![Tests](https://img.shields.io/badge/tests-154%20passed-success?style=flat-square)](#测试)
 [![Devices](https://img.shields.io/badge/devices-60%2B%20models-informational?style=flat-square)](#兼容性)
 
-<img src="assets/tray-taskbar.svg" width="700" alt="外设电量 —— 任务栏托盘图标（三环）与放大特写">
+<img src="assets/tray-taskbar.svg" width="680" alt="外设电量 —— 任务栏托盘图标（三环）与放大特写">
 
 <sub>任务栏上只有一个图标，三圈同心环对应三台设备；弧长即电量。<br>
 下面是卡片界面 👇</sub>
@@ -565,6 +565,10 @@ Banxiaxiala/mchose-battery-tray      ← 本项目（演进为多协议 + 历史
 > ⚠️ 这两个上游**没有声明许可证**。「无许可证」默认保留所有权利 ——
 > 本项目在它们基础上做了大量演进（多协议、三层历史、设备表驱动），
 > 并选择以 GPL-3.0 发布。如果上游作者对此有异议，请联系调整。
+>
+> **⚠️ 不要点 GitHub 的「Sync fork」**：上游是 Python 实现、无许可证，
+> 本仓库是重写的 C#/GPL-3.0 版本，两者没有可合并的代码。
+> 同步会把上游的 Python 文件合并进来，且引入许可证冲突。
 
 ### 代码移植（GPL-3.0 派生来源）
 

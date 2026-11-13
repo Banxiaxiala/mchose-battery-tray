@@ -428,6 +428,27 @@ dotnet publish src\PeripheralBattery.csproj -c Release ^
 
 ---
 
+## 8b. 仓库是 fork，但别用 Sync fork
+
+GitHub 上本仓库标记为 fork 自
+[yszyszysz233/2.4G-battery-viewer](https://github.com/yszyszysz233/2.4G-battery-viewer)，
+这是为了记录方法论来源（把「枚举 HID → 抓包 → 试命令 → 爆破校验」
+写成可复用 Prompt）。
+
+**但这个 fork 与上游没有可合并的代码**：
+
+| | 上游 | 本仓库 |
+|---|---|---|
+| 语言 | Python | C# / WPF |
+| 许可证 | 无 | GPL-3.0 |
+| 功能 | 两台具体设备的读取 | 多协议 + 三层历史 + 设备表 |
+
+⚠️ **点「Sync fork」会把上游的 Python 文件合并进来**，且引入许可证冲突
+（无许可证代码不能并入 GPL-3.0 项目）。要避免。
+
+同理，`git pull upstream` 也不要用 —— 本地 upstream remote 的推送已被
+禁用（`--PUSH-DISABLED`），但拉取仍会带入上游内容。
+
 ## 9. 当前状态与已知限制
 
 ### 已实现

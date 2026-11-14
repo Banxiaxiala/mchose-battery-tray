@@ -31,13 +31,20 @@
 
 - 所有生产代码必须位于 `src/` 下对应分层：
   - `Models/` — 纯数据与纯换算，**零 I/O**，可脱机单测
-  - `Core/` — Win32 底层：`Win32.cs`（全部 P/Invoke）、`Hid.cs`（句柄与挂起读）、
-    `BluetoothBattery.cs`（`BTHLE` + `BTHENUM` 电量属性，耳机与键盘共用）
-  - `Hardware/` — `Protocols.cs`（纯解析，零 I/O）+ `Readers.cs`（I/O 编排）
-    + `Max102Reader.cs`（维咖键盘的双通道降级）
-  - `Services/` — `History.cs`（历史与预测）、`Settings.cs`、`AutoStart.cs`
+  - `Core/` — Win32 底层：`Win32.cs`（全部 P/Invoke）、`Hid.cs`（句柄、
+    挂起读、Feature Report）、`BluetoothBattery.cs`（`BTHLE` + `BTHENUM`
+    两棵树的电量属性）、`Tracer.cs`
+  - `Hardware/` — **按「协议族」组织，不按型号**：
+    `DeviceCatalog.cs`（设备表 + 协议链，**加型号只改这里**）、
+    `DeviceBinder.cs`（把定义装配成读函数）、
+    `Protocols.cs`（罗技/雷蛇/VIA 纯解析）、
+    `VendorProtocols.cs`（10 家厂商私有报文，纯解析零 I/O）、
+    `Readers.cs` / `Max102Reader.cs` / `VendorReader.cs`（I/O 编排）
+  - `Services/` — `History.cs`（三层聚合与预测）、`Settings.cs`（含备注与
+    通道别名）、`AutoStart.cs`
   - `UI/` — `Palette.cs`（配色唯一来源）、`Icons.cs`、`SparkChart.cs`、
-    `Acrylic.cs`、`BatteryCard.cs`、`SettingsPanel.cs`、`TrayIcon.cs`
+    `LineChart.cs`、`Acrylic.cs`、`BatteryCard.cs`、`SettingsPanel.cs`、
+    `TrayIcon.cs`、`TrayIconArt.cs`
 - 依赖方向严格单向：`UI → Services → Hardware → Core → Models`。
   `Hardware` 严禁 import `UI`；`Models` 严禁 import 其它任何层。
 - `Program.cs` 只做装配，不许出现协议字节或窗口布局。
@@ -191,6 +198,56 @@
 `Point`、`Brush` 三组类型会撞成 CS0104。本项目关掉 `ImplicitUsings`，
 用 `GlobalUsings.cs` 里的显式别名。
 
+## 6b. 添加设备型号：改数据，不改逻辑
+
+设备清单是**数据**，不是代码分支。加一台设备的正确姿势：
+
+1. **同协议的另一个型号** → 只改 `Hardware/DeviceCatalog.cs` 的声明，
+   或让用户在 `data\devices.json` 里加一条。**`Program`、卡片、托盘、
+   历史一行都不用动。**
+2. **全新协议** → `VendorProtocols.cs` 加纯解析 → `VendorReader.cs`
+   补一个分派分支 → `DeviceCatalog.cs` 加声明 → `ProtocolTests` 加断言。
+
+⚠️ **不许为一个型号写一个 Reader。** 14 种协议支撑 14 台设备，
+如果按型号写就是 14 个近似的类。协议的差别（命令号、偏移、校验）
+一律抽成参数或纯函数。
+
+⚠️ **`Program.BuildDevices()` 里不许出现具体设备。** 它只负责把
+`DeviceDefinition` 转成运行时槽位。
+
+## 6c. 证据分级：不许把「移植」写成「实测」
+
+`docs/COMPATIBILITY.md` 用四级标注：
+
+| 等级 | 含义 |
+|:---:|---|
+| 🟢 | 作者真机实测，型号/电量/充电全验证 |
+| 🟡 | 同协议族、照公开实现移植，**没在真机验证** |
+| 🔵 | 只有蓝牙系统属性，拿不到充电状态 |
+| ⚪ | 型号存在但完全没证据 |
+
+**只有 3 台是 🟢。** 其余 11 台是 🟡 —— 改动那些协议的帧偏移时格外保守，
+依据看 `VendorProtocols.cs` 的注释（那里写了来源与帧样例）。
+
+⚠️ **绝不允许**为了让文档好看而把 🟡 改成 🟢。猜一个型号名比写「未知设备」
+更糟 —— 用户会以为自己买到了假货。
+
+## 6d. 设备身份要区分「实例」而不是「型号」
+
+同一型号的两台设备必须能各自有历史、开关、备注。身份来自：
+
+| 通道 | 身份来源 |
+|---|---|
+| 蓝牙 | MAC（`bt:44:5E:CD:40:7C:2A`） |
+| HID | VID:PID + 序列号 |
+| 罗技 | 接收器序列号 + 槽位号 |
+| 都拿不到 | `model:<key>`，界面标注「⚠ 无法区分同型号实例」 |
+
+⚠️ **通道切换不能换身份。** 耳机用蓝牙时是 `bt:<MAC>`，切 2.4G 时是
+`hid:<接收器序列号>` —— 两者天然不同。`Settings.ResolveChannelIdentity`
+把它们收敛到同一个「主身份」，否则用户切个连接方式就发现备注没了、
+历史断了。这条有 5 项断言锁着。
+
 ## 7. HID 读写的三个必踩坑（改协议前必读）
 
 1. **`CreateFileW` 必须带 `FILE_FLAG_OVERLAPPED`**
@@ -321,7 +378,7 @@
 
 1. 改 `src/PeripheralBattery.csproj` 的 `<Version>`
 2. 跑 `build.bat`（会自动杀进程 → 跑测试 → 编译 → 发布）
-3. 测试必须 **236 项全 PASS**
+3. 测试必须 **242 项全 PASS**
    > 兼容性矩阵（`docs/COMPATIBILITY.md`）新增型号时，**必须**如实标注等级：
    > 没在真机上读过就只能是 🟡/⚪，不许写成 🟢。猜一个型号名比写「未知设备」更糟 ——
    > 用户会以为自己买到了假货。

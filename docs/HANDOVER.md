@@ -2,39 +2,85 @@
 
 > 给接手这个项目的人。目标：**30 分钟内能改一行代码、跑起来、看到效果**。
 >
-> 写于交接触点，版本 `4.0.0`（新增维咖 MAX102 键盘，改名「外设电量」）。
+> 当前版本 `4.2.0`。若本文与你看到的代码不一致，**以代码为准**，
+> 并把过时的地方顺手改掉（这是 AGENTS.md 第 13 条的要求）。
 
 ---
 
 ## 1. 一分钟认识这个项目
 
-一个 Windows 托盘小工具：**一个托盘图标同时显示三台外设的电量**
-（外环鼠标 / 中环耳机 / 内环键盘），左键单击弹出亚克力卡片，
-看 24 小时历史曲线与续航预测。
+一个 Windows 托盘小工具：**一个托盘图标同时显示多台外设的电量**
+（环数 = 设备数），左键单击弹出亚克力卡片，看历史曲线与续航预测。
 
 | 项 | 值 |
 |---|---|
 | 技术栈 | C# 12 + WPF，`net8.0-windows` |
-| 代码量 | 生产代码 21 个文件 / 约 6200 行；测试 3 个文件 / 约 1000 行 |
-| 单文件 exe | 约 390 KB（framework-dependent） |
+| 代码量 | 生产代码 30 个文件 / 约 15100 行；测试 7 个文件 / 约 4100 行 |
+| 单文件 exe | 约 503 KB（framework-dependent） |
 | 第三方依赖 | **零**（只用 BCL + WPF + Win32 P/Invoke） |
-| 测试 | 236 项脱机断言，全部通过 |
-| 本机实测设备 | 罗技 PRO X 2（`046D:C54D`）、雷蛇 BlackShark V2 Pro（2.4G `1532:0555` / 蓝牙 `Razer BlackShark V2 Pro BT`）、维咖 MAX102（2.4G `342D:E537` / 蓝牙 `MAX102-BT*`） |
+| 测试 | **242 项**脱机断言，全部通过 |
+| 许可证 | **GPL-3.0**（派生自 GPL 项目，见根 README 致谢） |
+| 内置设备 | **14 台**，覆盖 **14 种协议** |
+| 真机实测设备 | 罗技 G304/PRO X 2、雷蛇 BlackShark V2 Pro（2.4G + 蓝牙）、维咖 MAX102（2.4G + 蓝牙） |
 
-> **v3 → v4 改了什么**：把写死的「鼠标 + 耳机」重构成设备表
-> （`Program.BuildDevices()`），加入第三台设备维咖 MAX102，
-> 托盘图标从双圆环变三圆环，程序改名为「外设电量」（含历史数据迁移）。
-> 详见 [ARCHITECTURE.md](ARCHITECTURE.md) 的「设备表驱动」与「维咖 MAX102」两节。
->
-> **v4 之后的增量**：耳机补上蓝牙模式读数。耳机的电量在蓝牙模式下
-> 只存在于系统 PnP 属性里，而且**挂在经典蓝牙（BTHENUM）的音频服务子节点**
-> 上（不是 BTHLE），旧的 `BluetoothBattery.Query` 只枚举 BTHLE，
-> 所以耳机在蓝牙下永远显示「没找到 2.4G 接口」。详见 ARCHITECTURE 的
-> 「蓝牙通道」一节。
+### 这个项目现在的形态
+
+**从「写死三台的托盘工具」变成了「设备表驱动的框架」**：
+
+- 设备清单是**数据**（`Hardware/DeviceCatalog.cs`），加型号不改代码
+- 用户也能在 `data\devices.json` 里加自定义型号，不用重编译
+- 一台设备可以由**多条通道**组成（2.4G 优先、蓝牙回落），按顺序降级
+- 支持 14 种协议：罗技 HID++、雷蛇 PA/PI、VIA/QMK、蓝牙属性、
+  以及 10 家厂商的私有报文（ATK / 飞智 / 漫步者 / 迈从鼠标 / 迈从键盘 /
+  GameSir / 华硕 ROG / HyperX / 宏碁 / NuPhy / 高斯）
+
+### 证据分级（重要）
+
+只有 **3 台**是作者真机实测过的（🟢）。其余 11 台是**照公开参考实现移植**的
+（🟡），代码已接入、有断言，但**没在对应真机上验证过**。
+
+改动这些 🟡 协议时请保守：帧格式的来源写在 `VendorProtocols.cs` 的注释里，
+不要凭推测改字节偏移。详见 [COMPATIBILITY.md](COMPATIBILITY.md)。
+
+详见 [ARCHITECTURE.md](ARCHITECTURE.md) 的「设备表驱动」「蓝牙通道」
+「同类项目调研结论」三节。
 
 ---
 
 ## 2. 第一天要做的事
+
+### 2.0 新机器从零接手（5 步）
+
+```bat
+:: 1) 拿代码
+git clone https://github.com/Banxiaxiala/mchose-battery-tray.git
+cd mchose-battery-tray
+
+:: 2) 装 .NET SDK 8（见下一节，含不装 C 盘的方案）
+
+:: 3) 跑测试，先确认基线是绿的
+dotnet run --project tests\PeripheralBattery.Tests.csproj
+::    应看到「共 242 项，通过 242，失败 0」
+
+:: 4) 编译并验证能读到设备
+build.bat
+dist\外设电量.exe --probe
+
+:: 5) 起托盘看实际效果
+dist\外设电量.exe
+```
+
+**前三步不需要任何硬件**。第 4 步若一台设备都没读到，属于正常 —— 
+说明这台机器上没有受支持的设备，看 `--probe` 输出里每台设备的报错原因即可
+（「没有找到 XXX 接口」= 设备没插；「没有应答」= 插了但休眠/固件不支持）。
+
+接手前必读的三件事：
+
+1. **[COMPATIBILITY.md](COMPATIBILITY.md)** —— 哪些设备是真机验证过的（🟢），
+   哪些只是「照公开实现移植、没验证」（🟡）。**改 🟡 协议要格外保守**。
+2. **[AGENTS.md](AGENTS.md)** —— 硬性约束。尤其第 6 条（UI 铁律）与
+   第 9 条（数据可信度），那些都是踩过坑写下来的。
+3. **本文第 5 节「必须知道的坑」** —— 改协议/改 UI 之前看一遍能省半天。
 
 ### 2.1 装环境
 
@@ -165,34 +211,57 @@ dist\外设电量.exe --probe --trace
 
 ```
 build.bat                 ← 一键构建（自动定位装了 SDK 的 dotnet）
-docs/                     ← 本文件、README、ARCHITECTURE、AGENTS
+docs/                     ← 本文件、README、ARCHITECTURE、AGENTS、COMPATIBILITY
 src/
   PeripheralBattery.csproj  ← 唯一的生产工程文件（net8.0-windows）
-  Program.cs              ← 装配层：把各层接起来。改「程序怎么跑」看这里
-  Models/Models.cs        ← 纯数据 Reading/Sample/Bucket/Forecast/Analysis
+  Program.cs              ← 装配层：设备表 + 刷新循环 + 交互。改「怎么跑」看这里
+  Models/
+    Models.cs             ← 纯数据 Reading/Sample/Bucket/Forecast/Analysis
+                            + 设备身份规则、屏幕坐标夹取（都可脱机测）
+    TooltipText.cs        ← 悬停提示拼装与 63 字符降级
   Core/
-    Win32.cs              ← 全项目唯一的 P/Invoke 声明。加系统性 API 调用来这里
-    Hid.cs                ← HID 枚举 + 句柄 + 常驻挂起读
+    Win32.cs              ← 全项目唯一的 P/Invoke 声明。加系统 API 来这
+    Hid.cs                ← HID 枚举 + 句柄 + 常驻挂起读 + Feature Report
+    BluetoothBattery.cs   ← BTHLE+BTHENUM 电量属性（两棵树都要扫）
+    Tracer.cs             ← --trace 日志（同时写 data\logs）
   Hardware/
-    Protocols.cs          ← 三套协议的纯解析/构造。改协议先看这里
-    Readers.cs            ← I/O 编排：罗技两遍槽位探测、雷蛇 64B 收发
-    Max102Reader.cs       ← 维咖 MAX102：2.4G VIA 优先，蓝牙属性回落
+    DeviceCatalog.cs      ← ★ 设备表 + 协议链声明。**加型号只改这里**
+    DeviceBinder.cs       ← 把设备定义装配成读函数
+    Protocols.cs          ← 罗技/雷蛇/VIA 三套协议的纯解析
+    VendorProtocols.cs    ← 10 家厂商私有报文（纯解析，零 I/O）
+    Readers.cs            ← 罗技/雷蛇的 I/O 编排
+    Max102Reader.cs       ← VIA 族键盘（维咖/高斯），参数化
+    VendorReader.cs       ← 厂商私有报文的统一 I/O 骨架
   Services/
-    History.cs            ← 历史存储、24h 分桶、续航预测、跳变过滤
-    Settings.cs           ← 用户设置持久化 + 区间校验
+    History.cs            ← 三层聚合历史（48h/30d/24月）+ 预测 + 跳变过滤
+    Settings.cs           ← 设置持久化、便携目录、备注、通道别名
     AutoStart.cs          ← 三重自启动对齐
   UI/
     Palette.cs            ← 配色唯一来源。改颜色只改这里
     Icons.cs              ← 矢量图形（电池/闪电/刷新/齿轮）
-    SparkChart.cs         ← 24 小时柱状图（自绘）
+    SparkChart.cs         ← 柱状图（自绘，支持悬停提示）
+    LineChart.cs          ← 折线图（真实时间轴，断线，悬停提示）
     Acrylic.cs            ← DWM 毛玻璃 + 圆角（两级回退）
-    BatteryCard.cs        ← 卡片窗口。改卡片布局看这里
-    SettingsPanel.cs      ← 设置面板
-    TrayIcon.cs           ← 托盘图标 + 右键菜单 + 图标位置查询
+    BatteryCard.cs        ← 卡片窗口。改布局看这里
+    SettingsPanel.cs      ← 设置面板 + 二级「管理设备」窗口
+    TrayIcon.cs           ← 托盘图标 + 菜单 + 位置查询 + 设备接入广播
+    TrayIconArt.cs        ← 环状图标绘制（环数随设备数自适应）
     Win32Cursor.cs        ← 光标位置薄封装
-  Tools/CardPreview.cs    ← --preview：合成数据渲染卡片并截图
+  Tools/
+    CardPreview.cs        ← --preview：合成数据渲染卡片并截图
+    TrayVectorPreview.cs  ← --tray / --traybar：输出矢量 SVG
 tests/
-  PeripheralBattery.Tests.csproj ← 88 项脱机断言，链接 src 下的源文件
+  PeripheralBattery.Tests.csproj ← 242 项脱机断言，链接 src 下的源文件
+  Harness.cs              ← 60 行手写测试运行器（不用 xunit）
+  CatalogTests.cs         ← 设备表、身份、备注、标题栏计数
+  AggregateTests.cs       ← 三层聚合折叠与重采样
+  HistoryTests.cs         ← 历史/预测/设置
+  ProtocolTests.cs        ← 三套主协议的真机帧断言
+  VendorProtocolTests.cs  ← 10 家厂商报文的帧构造与校验
+  PaletteTests.cs         ← 配色阈值、托盘几何、按钮文案
+tools/
+  draw_diagrams.py        ← 生成 README 的 SVG 示意图
+  list_files.py           ← 交接自检（必需文件是否齐全）
 ```
 
 ### 依赖方向（不要违反）
@@ -316,7 +385,7 @@ cmd.exe 会把 BOM 当命令的一部分，第一行必然报
 
 想验证无线链路：**拔掉数据线**，再跑一次 `--probe`。
 
-### 三台设备都读不到
+### 所有设备都读不到
 
 ```bat
 dist\外设电量.exe --probe --trace
@@ -376,7 +445,7 @@ dotnet run --project tests
 ```
 
 会逐项打印 PASS/FAIL 与失败原因。测试零硬件依赖，挂了一般是真改坏了。
-当前是 88 项。
+当前是 242 项。
 
 ---
 
@@ -408,7 +477,7 @@ dotnet run --project tests
 build.bat
 ```
 
-产出 `dist\外设电量.exe`，**387 KB**。
+产出 `dist\外设电量.exe`，**503 KB**。
 需要目标机已装 `Microsoft.WindowsDesktop.App` 8.0 运行时。
 
 ### 给别人用（自包含）

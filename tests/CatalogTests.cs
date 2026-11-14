@@ -147,6 +147,65 @@ namespace PeripheralBattery.Tests
             Assert.NotNull(Protocols.RazerModelName("", 0x025C), "键盘在表里");
         }
 
+        // ============================================================ 数据新鲜度文案
+        //
+        // 蓝牙电量读的是 Windows 缓存，而 Windows 只在设备主动上报时更新它。
+        // 实测用户耳机的值能停 43 分钟不动。软件无法触发重读
+        // （CM_Reenumerate_DevNode 被拒、pnputil 需管理员、
+        //   枚举类设备只读属性不查询设备）。
+        //
+        // 既然数字改不了，至少要说清它有多旧。
+
+        [Test]
+        public static void FreshDataHasNoAgeSuffix()
+        {
+            var now = new System.DateTime(2026, 11, 14, 14, 0, 0);
+
+            Assert.Equal("", Models.Reading.DescribeAge(System.DateTime.MinValue, now),
+                "没有时间戳（HID 实时协议）不该标注");
+
+            Assert.Equal("", Models.Reading.DescribeAge(now.AddMinutes(-4), now),
+                "5 分钟以内不提 —— 默认 30 秒刷新一次，提了是噪音");
+
+            Assert.Equal("", Models.Reading.DescribeAge(now, now), "零延迟不标注");
+        }
+
+        [Test]
+        public static void AgeSuffixUsesReadableUnits()
+        {
+            var now = new System.DateTime(2026, 11, 14, 14, 0, 0);
+
+            Assert.Equal("12 分钟前更新",
+                Models.Reading.DescribeAge(now.AddMinutes(-12), now), "分钟级");
+            Assert.Equal("43 分钟前更新",
+                Models.Reading.DescribeAge(now.AddMinutes(-43), now), "实测的 43 分钟");
+            Assert.Equal("3 小时前更新",
+                Models.Reading.DescribeAge(now.AddHours(-3), now), "小时级");
+            Assert.Equal("2 天前更新",
+                Models.Reading.DescribeAge(now.AddDays(-2), now), "天级");
+        }
+
+        [Test]
+        public static void AgeSuffixToleratesClockSkew()
+        {
+            // 时钟回拨会让 dataAt 落在「未来」，不能算出负数
+            var now = new System.DateTime(2026, 11, 14, 14, 0, 0);
+            string text = Models.Reading.DescribeAge(now.AddMinutes(10), now);
+            Assert.Equal("", text, "未来时间按「刚刚」处理，不报负数");
+        }
+
+        [Test]
+        public static void AgeBoundaryAtFiveMinutes()
+        {
+            var now = new System.DateTime(2026, 11, 14, 14, 0, 0);
+
+            // 4:59 不提，5:00 开始提
+            Assert.Equal("",
+                Models.Reading.DescribeAge(now.AddSeconds(-299), now), "4分59秒");
+            Assert.Equal("5 分钟前更新",
+                Models.Reading.DescribeAge(now.AddSeconds(-300), now), "正好 5 分钟");
+        }
+
         // ============================================================ 设备身份
         //
         // 核心问题：两台**同型号**设备同时接入时，不能共用历史/开关/备注。

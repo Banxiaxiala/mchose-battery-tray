@@ -67,6 +67,41 @@ namespace PeripheralBattery.Models
         public static readonly TimeSpan TrustedCacheAge = TimeSpan.FromHours(6);
 
         /// <summary>
+        /// 电量数据的「新鲜度后缀」，用于界面上如实标注。
+        ///
+        /// 为什么需要：蓝牙通道读的是 Windows 缓存，而 Windows 只在
+        /// **设备主动上报**时才更新它。软件无法触发重读（实测
+        /// CM_Reenumerate_DevNode 被拒、pnputil 需管理员、
+        /// 枚举类设备只读属性不查询设备）。
+        ///
+        /// 用户的耳机实测能停 36 分钟不动。数字本身没错，但看起来
+        /// 像「刚刚读到」就是误导 —— 所以把时间说出来。
+        ///
+        /// 返回值不含前导分隔符，空串表示「足够新，不必提」。
+        /// </summary>
+        public static string DescribeAge(DateTime dataAt, DateTime? now = null)
+        {
+            if (dataAt == DateTime.MinValue) return "";
+
+            var current = now ?? DateTime.Now;
+            var delta = current - dataAt;
+            if (delta < TimeSpan.Zero) delta = TimeSpan.Zero;   // 时钟回拨
+
+            // 5 分钟以内不提：默认 30 秒刷新一次，提了反而是噪音
+            if (delta < TimeSpan.FromMinutes(5)) return "";
+
+            if (delta < TimeSpan.FromHours(1))
+            {
+                return ((int)delta.TotalMinutes) + " 分钟前更新";
+            }
+            if (delta < TimeSpan.FromDays(1))
+            {
+                return ((int)delta.TotalHours) + " 小时前更新";
+            }
+            return ((int)delta.TotalDays) + " 天前更新";
+        }
+
+        /// <summary>
         /// 读数是否「新鲜」：要么是实时协议（无时间戳），
         /// 要么缓存时间在 maxAge 以内。
         /// </summary>

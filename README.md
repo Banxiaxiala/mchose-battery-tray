@@ -9,7 +9,7 @@
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](#构建)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](#授权)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-none-brightgreen?style=flat-square)](#设计约束)
-[![Size](https://img.shields.io/badge/single%20exe-502%20KB-blue?style=flat-square)](#性能)
+[![Size](https://img.shields.io/badge/single%20exe-503%20KB-blue?style=flat-square)](#性能)
 [![Tests](https://img.shields.io/badge/tests-232%20passed-success?style=flat-square)](#测试)
 [![Devices](https://img.shields.io/badge/devices-60%2B%20models-informational?style=flat-square)](#兼容性)
 
@@ -527,7 +527,7 @@ dotnet run --project tests\PeripheralBattery.Tests.csproj
 
 | 指标 | 数值 |
 |---|---|
-| 单文件 exe | 502 KB（framework-dependent） |
+| 单文件 exe | 503 KB（framework-dependent） |
 | 运行时代码 | 约 9,100 行（25 个文件） |
 | 内存占用 | 私有约 39 MB / 工作集约 94 MB（WPF + 亚克力实测） |
 | 罗技读取 | ~130 ms（含两遍槽位探测） |
@@ -561,6 +561,7 @@ dotnet run --project tests\PeripheralBattery.Tests.csproj
 |---|---|
 | 逐型号逆向 | 换设备需重新抓包验证，没有通用自动发现 |
 | 蓝牙通道拿不到充电状态 | 系统属性 `{104EA319-…} 3` 实测恒缺失，只能写「充电状态未知」 |
+| **蓝牙电量是缓存值** | Windows 只在设备主动上报时更新，软件无法触发重读（实测 `CM_Reenumerate_DevNode` 被拒、`pnputil` 需管理员）。所以界面会标注「N 分钟前更新」 |
 | 蓝牙按名字前缀识别 | 耳机 `Razer*`、键盘 `MAX102*`。不按 MAC 是因为 MAC 随重配对变化 |
 | 续航预测需 30 分钟样本 | 刚装好会显示「放电数据积累中」 |
 | 有线模式下读不到无线那端 | 物理限制：插线后设备不再通过 2.4G 上报 |

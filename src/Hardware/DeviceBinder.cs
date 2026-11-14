@@ -255,6 +255,16 @@ namespace PeripheralBattery.Hardware
             // 系统属性没有充电位（pid 3 实测恒缺失），传 -1 让文案如实说「未知」
             var state = Protocols.InterpretBluetoothState(info.Connected, charging: -1);
 
+            // 蓝牙电量是**缓存值**：Windows 只在设备主动上报时才更新它，
+            // 软件无法触发重读。实测用户的耳机能停 36 分钟不动。
+            // 数字本身没错，但不标注就看起来像「刚刚读到」—— 会误导。
+            string status = state.Status;
+            if (info.Connected)
+            {
+                string age = Models.Reading.DescribeAge(info.UpdatedAt);
+                if (age.Length > 0) status += " · " + age;
+            }
+
             // 型号名：优先用设备定义里写的（用户能改），
             // 反推 PnP 友好名只是兜底 —— 例如键盘的友好名是 "MAX102-BT1"，
             // 直接显示它会让用户以为是另一个型号。
@@ -268,7 +278,7 @@ namespace PeripheralBattery.Hardware
                 Percent = info.Percent,
                 Charging = state.Charging,
                 Connected = state.Connected,
-                Status = state.Status,
+                Status = status,
                 Transport = "蓝牙",
                 // 蓝牙 MAC 是天然唯一的设备身份，比 HID 序列号可靠得多
                 Identity = DeviceIdentity.Bluetooth(info.Address),

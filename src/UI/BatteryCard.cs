@@ -288,6 +288,39 @@ namespace PeripheralBattery.UI
             _onChartRange = onRange;
         }
 
+        /// <summary>
+        /// 让第一张图表在指定比例位置显示悬停提示。仅供 --preview。
+        /// 柱状图与折线图都支持（两者都实现了 HoverAtRatio）。
+        /// </summary>
+        public void HoverChartAt(double ratio)
+        {
+            var chart = FindFirstChart(_root);
+            chart?.Invoke(ratio);
+        }
+
+        /// <summary>
+        /// 深度优先找第一个图表控件。
+        ///
+        /// 必须递归：图表套在 BuildDevice 返回的 StackPanel 里，
+        /// 而那个 panel 又挂在 _root 下 —— 只遍历 _root.Children
+        /// 永远找不到（这条一开始就写错了）。
+        /// </summary>
+        private static Action<double>? FindFirstChart(DependencyObject parent)
+        {
+            int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+
+                if (child is SparkChart bar) return bar.HoverAtRatio;
+                if (child is LineChart line) return line.HoverAtRatio;
+
+                var nested = FindFirstChart(child);
+                if (nested != null) return nested;
+            }
+            return null;
+        }
+
         /// <summary>由 Program 传入当前设置，避免卡片自己读全局单例</summary>
         public void ApplyChartSettings(string style, int rangeHours)
         {

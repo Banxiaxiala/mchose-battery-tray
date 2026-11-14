@@ -82,17 +82,6 @@ namespace PeripheralBattery
         public string Error { get; set; } = "";
 
         /// <summary>
-        /// 下一次允许被「自动检测」尝试的时刻（UTC ticks）。
-        ///
-        /// 为什么不是一次性的「已探测过」布尔：
-        /// 设备插上时可能正在休眠，单次探测失败就永久放弃会漏掉它。
-        /// 所以失败后冷却一段时间再试 —— 冷却期 5 分钟，
-        /// 14 台轮流 + 5 分钟冷却，仍能在一个刷新周期内覆盖到新插入的设备，
-        /// 又不会每轮都去碰那些确实没插的型号。
-        /// </summary>
-        public DateTime NextAutoProbeAt { get; set; } = DateTime.MinValue;
-
-        /// <summary>
         /// 连续没读到的次数。用来区分「空口丢了一帧」与「设备真的没了」。
         /// 没有它，丢一帧就会把卡片与托盘标成离线（默认 30 秒刷新一次，
         /// 错就错 30 秒）—— 用户看到的是「耳机明明在用却掉线」。
@@ -146,12 +135,16 @@ namespace PeripheralBattery
                 bool light = Array.IndexOf(args, "--light") >= 0;
                 int width = 0;
                 int repeat = 1;
+                double hover = -1;
                 for (int i = 0; i + 1 < args.Length; i++)
                 {
                     if (args[i] == "--width") int.TryParse(args[i + 1], out width);
                     if (args[i] == "--repeat") int.TryParse(args[i + 1], out repeat);
+                    if (args[i] == "--hover") double.TryParse(args[i + 1],
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out hover);
                 }
-                Tools.CardPreview.Run(output, style, range, light, width, repeat);
+                Tools.CardPreview.Run(output, style, range, light, width, repeat, hover);
                 return;
             }
 
@@ -224,7 +217,8 @@ namespace PeripheralBattery
 
             _tray = new TrayIcon();
             _card = new BatteryCard();
-            _card.SetHandlers(RefreshNow, OpenSettings);
+            // 卡片上的刷新按钮 = 用户主动要求 → 顺带扫描新设备
+            _card.SetHandlers(RefreshWithScan, OpenSettings);
 
             // 图表切换必须同时做三件事，少一件用户就会觉得「点了没反应」：
             //   1. 更新设置并落盘（下次打开保持）
@@ -260,8 +254,6 @@ namespace PeripheralBattery
                         // 手动关闭要记下来，否则「后续自动检测」会把它又打开。
                         // 手动打开时清掉标记并允许重新探测一次。
                         _settings.MarkManualDisabled(key, !enabled);
-                        // 手动打开时清掉冷却，让它立刻有机会被探测
-                        if (enabled) slot.NextAutoProbeAt = DateTime.MinValue;
                     }
                 }
                 ReassignRings();
@@ -276,7 +268,7 @@ namespace PeripheralBattery
             _settingsPanel = panel;
 
             _tray.Clicked += ToggleCard;
-            _tray.RefreshRequested += RefreshNow;
+            _tray.RefreshRequested += RefreshWithScan;
 
             // 设备插入/拔出时立刻扫一遍，而不是等下一轮 30 秒。
             // 注意回调在线程池线程上，必须切回 UI 线程再动界面。
@@ -754,7 +746,31 @@ namespace PeripheralBattery
         }
 
         // ============================================================ 刷新
+        /// <summary>
+        /// 普通刷新：只读已启用的设备。
+        ///
+        /// 不做「顺便探测未启用设备」—— 那每次都要白等一轮超时，
+        /// 把 30 秒的定时刷新拖慢。想发现新设备请用 <see cref="RefreshWithScan"/>。
+        /// </summary>
         private static void RefreshNow()
+        {
+            RefreshCore(scanNewDevices: false);
+        }
+
+        /// <summary>
+        /// 用户主动刷新：先扫描一遍「未启用且非手动关闭」的设备，
+        /// 发现了就自动启用，再走普通刷新。
+        ///
+        /// 只在用户点刷新时做（卡片上的刷新按钮、托盘菜单的刷新），
+        /// 不放进定时器 —— 扫描要挨个试超时，代价只能由「主动要求」承担。
+        /// </summary>
+        private static void RefreshWithScan()
+        {
+            ScanForNewDevices();
+            RefreshCore(scanNewDevices: false);
+        }
+
+        private static void RefreshCore(bool scanNewDevices)
         {
             // 只刷新启用的设备：关闭的设备不探测、不写历史、不参与低电量提醒。
             // 这是「关闭监控」与「离线」的核心区别 —— 离线设备仍会被探测
@@ -848,10 +864,6 @@ namespace PeripheralBattery
                 CheckLowBattery(slot);
             }
 
-            // 顺带探一台「还没启用也没试过」的设备。
-            // 这样用户后来插上的设备会被自动发现，不需要手动去设置里勾。
-            TryAutoDetectOne();
-
             if (_card.IsVisible)
             {
                 RefreshCardData();
@@ -910,72 +922,6 @@ namespace PeripheralBattery
             ReassignRings();
             _settings.Save();
             Core.Tracer.Line("[设备接入] 自动启用：" + string.Join("、", activated));
-        }
-
-        /// <summary>
-        /// 每轮探测**一台**尚未启用的设备。
-        ///
-        /// 为什么是「一台」而不是「全部」：
-        /// 未接入的设备每次读取都要等超时（0.4~1.3 秒），14 台全扫一轮十几秒，
-        /// 30 秒的刷新间隔会被彻底拖垮。轮流探测每轮只多付一次超时的代价，
-        /// 用户插上新设备后最多 N 轮（约 N×30 秒）被自动发现 —— 可接受。
-        ///
-        /// 候选排除两类：
-        ///   * 已启用的（不用再探）
-        ///   * 用户**手动关闭**的（他明确不要，不能因为设备还插着就自动打开）
-        ///
-        /// 这是**兜底**：主力途径是 TrayIcon.DeviceChanged 的
-        /// WM_DEVICECHANGE 广播（插入即扫）。轮询只是防止广播丢失。
-        /// </summary>
-        private static void TryAutoDetectOne()
-        {
-            var now = DateTime.UtcNow;
-            DeviceSlot? candidate = null;
-            foreach (var slot in _devices)
-            {
-                if (slot.Enabled) continue;
-                if (_settings.IsManuallyDisabled(slot.HistoryKey)) continue;
-                if (slot.NextAutoProbeAt > now) continue;   // 还在冷却期
-                candidate = slot;
-                break;
-            }
-            if (candidate == null) return;
-
-            // 无论成败都排下一次冷却：失败的设备不能每轮都拖一次超时
-            candidate.NextAutoProbeAt = now.AddMinutes(5);
-
-            Reading? reading = null;
-            try
-            {
-                (reading, _) = candidate.Read();
-            }
-            catch (Exception)
-            {
-                return;
-            }
-
-            // 与首次探测同一条判据：在线 + 有电量 + 数据新鲜
-            if (reading == null || !reading.Percent.HasValue) return;
-            if (!reading.Connected) return;
-            if (!reading.IsFresh(TimeSpan.FromMinutes(10))) return;
-
-            // 探到了：自动启用
-            if (!_settings.SetDeviceEnabled(candidate.HistoryKey, true)) return;
-
-            candidate.Enabled = true;
-            candidate.Latest = reading;
-            if (string.IsNullOrEmpty(reading.Identity))
-            {
-                reading.Identity = DeviceIdentity.ModelOnly(candidate.HistoryKey);
-            }
-            reading.Identity = _settings.ResolveChannelIdentity(
-                candidate.HistoryKey, reading.Identity);
-            reading.Nickname = _settings.GetNickname(reading.Identity);
-
-            ReassignRings();
-            _settings.Save();
-
-            Core.Tracer.Line($"[自动检测] 发现新设备 {candidate.Label}，已自动启用");
         }
 
         /// <summary>按 Ring 槽位摊成数组交给托盘画图；缺的槽位传 null</summary>

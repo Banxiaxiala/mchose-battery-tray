@@ -22,7 +22,7 @@ namespace PeripheralBattery.Tools
     {
         public static void Run(string outputPath, string style = "bar",
             int rangeHours = 24, bool light = false, int width = 0,
-            int repeatDevices = 1)
+            int repeatDevices = 1, double hoverAtRatio = -1)
         {
             double now = TimeText.UnixNow();
 
@@ -218,6 +218,22 @@ namespace PeripheralBattery.Tools
                 timer.Stop();
                 try
                 {
+                    // 布局完成后才能触发悬停：图表把绘图区缓存在 OnRender 里，
+                    // 必须先真的渲染一次（UpdateLayout 不够，它不触发 OnRender），
+                    // 否则缓存的列宽/绘图区全是 0，HoverAtRatio 直接返回。
+                    if (hoverAtRatio >= 0)
+                    {
+                        card.UpdateLayout();
+                        // 强制渲染一遍让 OnRender 写入缓存
+                        var probe = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                            Math.Max(1, (int)card.ActualWidth),
+                            Math.Max(1, (int)card.ActualHeight), 96, 96,
+                            System.Windows.Media.PixelFormats.Pbgra32);
+                        probe.Render(card);
+
+                        card.HoverChartAt(hoverAtRatio);
+                        card.UpdateLayout();
+                    }
                     Save(card, outputPath);
                     Console.WriteLine("已保存：" + outputPath);
                 }

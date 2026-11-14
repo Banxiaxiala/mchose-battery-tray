@@ -12,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using PeripheralBattery.Models;
 
@@ -34,6 +35,63 @@ namespace PeripheralBattery.UI
         /// <summary>底部刻度带高度（容纳「-24h」这类时间标签）</summary>
         private const double ScaleBand = 15;
 
+        /// <summary>鼠标指向的柱子索引；-1 = 没悬停</summary>
+        private int _hoverIndex = -1;
+
+        // OnRender 里算出的布局，供 MouseMove 命中用（避免重复计算）
+        private double _barPitch;      // 每根柱占的宽度（柱宽 + 间隙）
+        private double _firstBarX;
+        private double _barWidth;
+        private double _plotBottom;
+
+        public SparkChart()
+        {
+            // FrameworkElement 默认对「无背景的绘制」不参与命中测试，
+            // 不打开这个选项收不到 MouseMove。
+            IsHitTestVisible = true;
+            MouseMove += OnMouseMove;
+            MouseLeave += (_, _) =>
+            {
+                if (_hoverIndex < 0) return;
+                _hoverIndex = -1;
+                InvalidateVisual();
+            };
+        }
+
+        /// <summary>
+        /// 按横向比例触发悬停。仅供 --preview 与视觉回归使用。
+        /// 找不到有数据的柱子就什么也不做（不弹空气泡）。
+        /// </summary>
+        public void HoverAtRatio(double ratio)
+        {
+            if (_buckets.Count == 0 || _barPitch <= 0) return;
+            double x = _firstBarX + Math.Clamp(ratio, 0, 0.999) * _barPitch * _buckets.Count;
+            int index = (int)Math.Floor((x - _firstBarX) / _barPitch);
+            _hoverIndex = index >= 0 && index < _buckets.Count && _buckets[index].HasData
+                ? index
+                : -1;
+            InvalidateVisual();
+        }
+
+        private void OnMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_buckets.Count == 0 || _barPitch <= 0) return;
+
+            double x = e.GetPosition(this).X;
+            int index = (int)Math.Floor((x - _firstBarX) / _barPitch);
+
+            // 只认有数据的柱子：空档弹出「--」反而干扰阅读
+            int found = -1;
+            if (index >= 0 && index < _buckets.Count && _buckets[index].HasData)
+            {
+                found = index;
+            }
+
+            if (found == _hoverIndex) return;
+            _hoverIndex = found;
+            InvalidateVisual();
+        }
+
         public void SetData(List<Bucket> buckets, bool dark,
             string leftLabel = "", string rightLabel = "")
         {
@@ -41,6 +99,8 @@ namespace PeripheralBattery.UI
             _dark = dark;
             _leftLabel = string.IsNullOrEmpty(leftLabel) ? "-24h" : leftLabel;
             _rightLabel = string.IsNullOrEmpty(rightLabel) ? "现在" : rightLabel;
+            // 数据换了，旧的悬停索引已经不对应任何柱子
+            _hoverIndex = -1;
             InvalidateVisual();
         }
 
@@ -103,6 +163,12 @@ namespace PeripheralBattery.UI
             double totalWidth = _buckets.Count * (barWidth + gap) - gap;
             double x = Math.Max(0, (width - totalWidth) / 2);
 
+            // 缓存给 MouseMove 命中用
+            _barPitch = barWidth + gap;
+            _firstBarX = x;
+            _barWidth = barWidth;
+            _plotBottom = baseline;
+
             foreach (var bucket in _buckets)
             {
                 if (bucket.HasData)
@@ -150,6 +216,63 @@ namespace PeripheralBattery.UI
 
             var right = MakeText(_rightLabel, 9, textFaint);
             dc.DrawText(right, new Point(width - right.Width, baseline + 3));
+
+            // ---- 悬停提示：最后画，压在所有元素之上 ----
+            DrawHover(dc, width, baseline, baseLineValue, span, chartHeight);
+        }
+
+        /// <summary>
+        /// 画悬停提示：高亮该柱 + 数值气泡。
+        ///
+        /// 气泡会做边界翻转 —— 靠近右边缘时画在柱子左侧，
+        /// 否则最右侧几根柱子的数值永远被裁掉。
+        /// </summary>
+        private void DrawHover(DrawingContext dc, double width, double baseline,
+            int baseLineValue, double span, double chartHeight)
+        {
+            if (_hoverIndex < 0 || _hoverIndex >= _buckets.Count) return;
+            var bucket = _buckets[_hoverIndex];
+            if (!bucket.HasData) return;
+
+            double barX = _firstBarX + _hoverIndex * _barPitch;
+            double centerX = barX + _barWidth / 2;
+
+            // 高亮：整列加一层极淡的底，比给柱子描边更不干扰配色
+            var highlight = new SolidColorBrush(Color.FromArgb(
+                _dark ? (byte)0x1E : (byte)0x14, 0x80, 0x90, 0xA0));
+            highlight.Freeze();
+            dc.DrawRectangle(highlight, null,
+                new Rect(barX - _barPitch * 0.4, 2,
+                    _barPitch * 0.8 + _barWidth * 0.4, baseline - 2));
+
+            // 气泡内容：电量 + 时间刻度（桶的 Hour 就是该柱的时间）
+            string caption = bucket.Percent + "%";
+            if (!string.IsNullOrEmpty(bucket.Hour)) caption += "　" + bucket.Hour;
+
+            var text = MakeText(caption, 9.5, Palette.BrushOf(_dark
+                ? Palette.TextPrimaryDark : Palette.TextPrimaryLight));
+
+            double padX = 5, padY = 2.5;
+            double boxWidth = text.Width + padX * 2;
+            double boxHeight = text.Height + padY * 2;
+
+            double boxLeft = centerX - boxWidth / 2;
+            if (boxLeft < 2) boxLeft = 2;
+            if (boxLeft + boxWidth > width - 2) boxLeft = width - 2 - boxWidth;
+
+            double boxTop = 2;
+
+            var boxBrush = new SolidColorBrush(_dark
+                ? Color.FromArgb(0xF0, 0x1C, 0x21, 0x28)
+                : Color.FromArgb(0xF0, 0xFF, 0xFF, 0xFF));
+            boxBrush.Freeze();
+            var boxPen = new Pen(Palette.BrushOf(Color.FromArgb(
+                _dark ? (byte)0x44 : (byte)0x2A, 0x5A, 0xC8, 0xFA)), 1);
+            boxPen.Freeze();
+
+            dc.DrawRoundedRectangle(boxBrush, boxPen,
+                new Rect(boxLeft, boxTop, boxWidth, boxHeight), 4, 4);
+            dc.DrawText(text, new Point(boxLeft + padX, boxTop + padY));
         }
 
         private static FormattedText MakeText(string text, double size, Brush brush)

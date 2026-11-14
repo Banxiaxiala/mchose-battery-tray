@@ -16,6 +16,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using PeripheralBattery.Models;
 
@@ -49,6 +50,90 @@ namespace PeripheralBattery.UI
         private double _fromT;
         private double _toT;
 
+        /// <summary>鼠标指向的数据点索引；-1 = 没悬停</summary>
+        private int _hoverIndex = -1;
+
+        // OnRender 里缓存的绘图区，供 MouseMove 反算时间
+        private double _plotLeftCache;
+        private double _plotRightCache;
+        private double _plotTopCache;
+        private double _plotBottomCache;
+        private double _axisLo;
+        private double _axisHi;
+
+        public LineChart()
+        {
+            // 无背景的 FrameworkElement 默认不参与命中测试
+            IsHitTestVisible = true;
+            MouseMove += OnMouseMove;
+            MouseLeave += (_, _) =>
+            {
+                if (_hoverIndex < 0) return;
+                _hoverIndex = -1;
+                InvalidateVisual();
+            };
+        }
+
+        /// <summary>
+        /// 鼠标 X → 时间 → 最近的有数据点。
+        ///
+        /// 必须按时间反算而不是按索引：折线的横轴是真实时间轴，
+        /// 「2 年窗口里只有 24 小时数据」时，索引与实际位置完全不成比例。
+        ///
+        /// 容差 = 平均点间距 × 1.5，鼠标在空白区也弹提示会干扰阅读。
+        /// </summary>
+        /// <summary>
+        /// 按横向比例触发悬停。仅供 --preview 与视觉回归使用。
+        /// </summary>
+        public void HoverAtRatio(double ratio)
+        {
+            if (_points.Count == 0 || _toT <= _fromT) return;
+            if (_plotRightCache <= _plotLeftCache) return;
+
+            double x = _plotLeftCache
+                + Math.Clamp(ratio, 0, 1) * (_plotRightCache - _plotLeftCache);
+            double targetT = _fromT + Math.Clamp(ratio, 0, 1) * (_toT - _fromT);
+
+            int best = -1;
+            double bestDelta = double.MaxValue;
+            for (int i = 0; i < _points.Count; i++)
+            {
+                if (!_points[i].HasData) continue;
+                double delta = Math.Abs(_points[i].T - targetT);
+                if (delta < bestDelta) { bestDelta = delta; best = i; }
+            }
+            _hoverIndex = best;
+            InvalidateVisual();
+        }
+
+        private void OnMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_points.Count == 0 || _toT <= _fromT) return;
+            if (_plotRightCache <= _plotLeftCache) return;
+
+            double x = e.GetPosition(this).X;
+            double ratio = Math.Clamp(
+                (x - _plotLeftCache) / (_plotRightCache - _plotLeftCache), 0, 1);
+            double targetT = _fromT + ratio * (_toT - _fromT);
+
+            int best = -1;
+            double bestDelta = double.MaxValue;
+            for (int i = 0; i < _points.Count; i++)
+            {
+                if (!_points[i].HasData) continue;
+                double delta = Math.Abs(_points[i].T - targetT);
+                if (delta < bestDelta) { bestDelta = delta; best = i; }
+            }
+
+            double tolerance = Math.Max(1,
+                (_toT - _fromT) / Math.Max(1, _points.Count) * 1.5);
+            int found = bestDelta <= tolerance ? best : -1;
+
+            if (found == _hoverIndex) return;
+            _hoverIndex = found;
+            InvalidateVisual();
+        }
+
         /// <summary>
         /// 设置数据。fromT / toT 是横轴的绝对时间范围（Unix 秒）。
         ///
@@ -66,6 +151,8 @@ namespace PeripheralBattery.UI
             _toLabel = toLabel;
             _fromT = fromT;
             _toT = toT;
+            // 数据换了，旧的悬停索引已经不对应任何点
+            _hoverIndex = -1;
             InvalidateVisual();
         }
 
@@ -120,6 +207,14 @@ namespace PeripheralBattery.UI
                 if (hi - lo < MinAxisSpan) lo = Math.Max(0, hi - MinAxisSpan);
             }
             double span = Math.Max(1, hi - lo);
+
+            // 缓存给 MouseMove 反算时间用
+            _plotLeftCache = plotLeft;
+            _plotRightCache = plotRight;
+            _plotTopCache = plotTop;
+            _plotBottomCache = plotBottom;
+            _axisLo = lo;
+            _axisHi = hi;
 
             double ValueToY(double value)
             {
@@ -287,6 +382,104 @@ namespace PeripheralBattery.UI
             {
                 var right = MakeText(_toLabel, 8.5, textFaint);
                 dc.DrawText(right, new Point(plotRight - right.Width, plotBottom + 2));
+            }
+
+            // ---- 悬停提示：最后画，压在所有元素之上 ----
+            DrawHover(dc, plotLeft, plotRight, plotTop, plotBottom, ValueToY);
+        }
+
+        /// <summary>
+        /// 画悬停指示：竖向虚线 + 高亮点 + 数值气泡。
+        /// 气泡贴边会翻转，否则最右侧的数据点永远看不到值。
+        /// </summary>
+        private void DrawHover(DrawingContext dc, double plotLeft, double plotRight,
+            double plotTop, double plotBottom, Func<double, double> valueToY)
+        {
+            if (_hoverIndex < 0 || _hoverIndex >= _points.Count) return;
+            var point = _points[_hoverIndex];
+            if (!point.HasData) return;
+
+            double x = PixelOf(_hoverIndex);
+            double y = valueToY(point.Percent);
+
+            var accent = Palette.BrushOf(_dark
+                ? Color.FromRgb(0x5A, 0xC8, 0xFA)
+                : Color.FromRgb(0x02, 0x84, 0xC7));
+
+            var dash = new Pen(Palette.BrushOf(Color.FromArgb(
+                _dark ? (byte)0x66 : (byte)0x50, 0x5A, 0xC8, 0xFA)), 1)
+            { DashStyle = new DashStyle(new double[] { 2, 2 }, 0) };
+            dash.Freeze();
+            dc.DrawLine(dash, new Point(x, plotTop), new Point(x, plotBottom));
+
+            var glow = new SolidColorBrush(Color.FromArgb(0x40, 0x5A, 0xC8, 0xFA));
+            glow.Freeze();
+            dc.DrawEllipse(glow, null, new Point(x, y), 5, 5);
+            dc.DrawEllipse(accent, null, new Point(x, y), 2.6, 2.6);
+
+            string caption = point.Percent + "%";
+            string when = FormatMoment(point.T);
+            if (when.Length > 0) caption += "　" + when;
+
+            var text = MakeText(caption, 9.5,
+                Palette.BrushOf(_dark ? Palette.TextPrimaryDark : Palette.TextPrimaryLight));
+            double padX = 5, padY = 2.5;
+            double boxWidth = text.Width + padX * 2;
+            double boxHeight = text.Height + padY * 2;
+
+            double boxLeft = x + 6;
+            if (boxLeft + boxWidth > plotRight) boxLeft = x - 6 - boxWidth;
+            if (boxLeft < plotLeft) boxLeft = plotLeft;
+
+            double boxTop = y - boxHeight - 5;
+            if (boxTop < plotTop) boxTop = y + 5;
+            if (boxTop + boxHeight > plotBottom) boxTop = plotBottom - boxHeight;
+
+            var boxBrush = new SolidColorBrush(_dark
+                ? Color.FromArgb(0xF0, 0x1C, 0x21, 0x28)
+                : Color.FromArgb(0xF0, 0xFF, 0xFF, 0xFF));
+            boxBrush.Freeze();
+            var boxPen = new Pen(Palette.BrushOf(Color.FromArgb(
+                _dark ? (byte)0x44 : (byte)0x2A, 0x5A, 0xC8, 0xFA)), 1);
+            boxPen.Freeze();
+
+            dc.DrawRoundedRectangle(boxBrush, boxPen,
+                new Rect(boxLeft, boxTop, boxWidth, boxHeight), 4, 4);
+            dc.DrawText(text, new Point(boxLeft + padX, boxTop + padY));
+        }
+
+        /// <summary>
+        /// 第 i 个点的像素 X。用缓存的绘图区按**时间**换算，
+        /// 与 OnRender 里的映射规则一致（不能用索引，那条轴是时间轴）。
+        /// </summary>
+        private double PixelOf(int index)
+        {
+            if (index < 0 || index >= _points.Count) return _plotLeftCache;
+            if (_toT <= _fromT) return _plotLeftCache;
+
+            double norm = (_points[index].T - _fromT) / (_toT - _fromT);
+            return _plotLeftCache
+                + Math.Clamp(norm, 0, 1) * (_plotRightCache - _plotLeftCache);
+        }
+
+        /// <summary>
+        /// 时间点的显示格式。跨度 ≤2 天写「时:分」，更长只写日期
+        /// （2 年视图里写时分是噪音）。
+        /// </summary>
+        private string FormatMoment(double unixSeconds)
+        {
+            double span = _toT - _fromT;
+            if (span <= 0) return "";
+            try
+            {
+                var local = TimeText.FromUnix(unixSeconds);
+                return span <= 2 * 86400
+                    ? local.ToString("HH:mm")
+                    : local.ToString("MM-dd");
+            }
+            catch (Exception)
+            {
+                return "";
             }
         }
 

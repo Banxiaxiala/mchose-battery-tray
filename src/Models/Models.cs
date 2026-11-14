@@ -52,6 +52,21 @@ namespace PeripheralBattery.Models
         public DateTime DataAt { get; set; } = DateTime.MinValue;
 
         /// <summary>
+        /// 「缓存数据仍然可信」的时间窗。
+        ///
+        /// ⚠️ 这不是「设备是否在线」的判据 —— 那个看 Connected。
+        ///
+        /// Windows 只在**电量发生变化时**才更新蓝牙属性的时间戳，
+        /// 不是定时刷新。所以一台稳稳 90% 的耳机，时间戳可能十几分钟
+        /// 甚至几小时不动，但它明明好好连着。
+        ///
+        /// 早期设成 10 分钟，结果用户插着耳机点刷新也加载不出来 ——
+        /// 这个窗只该用来挡「很久以前就关掉、但 Connected 还没更新」
+        /// 这种过渡态，取 6 小时足够。
+        /// </summary>
+        public static readonly TimeSpan TrustedCacheAge = TimeSpan.FromHours(6);
+
+        /// <summary>
         /// 读数是否「新鲜」：要么是实时协议（无时间戳），
         /// 要么缓存时间在 maxAge 以内。
         /// </summary>

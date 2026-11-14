@@ -447,10 +447,41 @@ namespace PeripheralBattery.UI
             };
             _root.Children.Add(_followTheme);
 
-            var pathNote = MakeText("设置保存在 %LOCALAPPDATA%\\外设电量\\settings.json",
-                9, Faint());
+            // 显示**真实**的数据目录，而不是写死的 %LOCALAPPDATA%。
+            //
+            // 便携模式下数据在 exe 旁边的 data\ —— 写死提示会让用户
+            // 照着去 %LOCALAPPDATA% 找，结果找不到。
+            var pathRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 2, 0, 0),
+            };
+
+            var openDir = new Button
+            {
+                Content = "打开数据目录",
+                FontSize = 9.5,
+                Height = 22,
+                Padding = new Thickness(9, 0, 9, 0),
+                Cursor = Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+                Background = Brushes.Transparent,
+                Foreground = Secondary(),
+                BorderThickness = new Thickness(1),
+                BorderBrush = Palette.BrushOf(Theme.IsDark
+                    ? Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)
+                    : Color.FromArgb(0x24, 0x00, 0x00, 0x00)),
+            };
+            openDir.Click += (_, _) => OpenDataFolder();
+            pathRow.Children.Add(openDir);
+            _root.Children.Add(pathRow);
+
+            // 路径本身用小字显示在下面，太长会换行
+            var pathNote = MakeText("数据目录：" + Settings.Directory, 9, Faint());
             pathNote.TextWrapping = TextWrapping.Wrap;
-            pathNote.Margin = new Thickness(0, 2, 0, 0);
+            pathNote.Margin = new Thickness(0, 4, 0, 0);
+            pathNote.ToolTip = Settings.Directory;
             _root.Children.Add(pathNote);
 
             SourceInitialized += (_, _) => ApplyBackdrop();
@@ -828,6 +859,31 @@ namespace PeripheralBattery.UI
             root.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
             root.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
             return new ControlTemplate(typeof(Button)) { VisualTree = root };
+        }
+
+        /// <summary>
+        /// 打开数据目录（资源管理器）。
+        ///
+        /// 用 explorer.exe 而不是 Process.Start("目录路径")：
+        /// 后者在某些 shell 关联被改坏的机器上会弹「用什么打开」。
+        /// </summary>
+        private static void OpenDataFolder()
+        {
+            try
+            {
+                string dir = Settings.Directory;
+                System.IO.Directory.CreateDirectory(dir);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = "\"" + dir + "\"",
+                    UseShellExecute = true,
+                });
+            }
+            catch (Exception)
+            {
+                // 打不开不该让设置面板崩（比如资源管理器被禁用）
+            }
         }
 
         /// <summary>主面板上的「管理设备」按钮，用于刷新计数</summary>

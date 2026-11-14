@@ -659,14 +659,13 @@ namespace PeripheralBattery
                     if (reading == null || !reading.Percent.HasValue) continue;
                     if (!reading.Connected) continue;
 
-                    // 第三道判据：蓝牙缓存的新鲜度。
-                    // IsConnected 在链路刚断时还没更新（实测差几十秒到几分钟），
-                    // 所以要再看「电量多久没刷新了」。实测数据：
-                    //   在用的耳机   → 几十秒内刚刷新
-                    //   两小时前关掉 → 停在 20:57
-                    //   三天前关掉的键盘 → 停在 3 天前
-                    // 取 10 分钟：足够容忍一次刷新间隔，又能挡住「早就关了」。
-                    bool fresh = reading.IsFresh(TimeSpan.FromMinutes(10));
+                    // 第三道判据：缓存的电量是否还在可信范围内。
+                    //
+                    // ⚠️ 这道判据只管「隔了很久的陈旧缓存」，不负责判在线。
+                    // Windows 只在电量变化时更新时间戳，一台稳定 90% 的
+                    // 耳机可能十几分钟不刷新 —— 用 10 分钟窗口会把
+                    // 正常在线的设备误判成过期（实测踩过）。
+                    bool fresh = reading.IsFresh(Reading.TrustedCacheAge);
                     if (!fresh)
                     {
                         // 只记「跳过」这一种情况：正常探测到的不必刷日志，
@@ -901,7 +900,10 @@ namespace PeripheralBattery
 
                 if (reading == null || !reading.Percent.HasValue) continue;
                 if (!reading.Connected) continue;
-                if (!reading.IsFresh(TimeSpan.FromMinutes(10))) continue;
+                // 陈旧缓存的兜底（离线设备 Connected 可能还没更新）。
+                // 阈值见 Reading.TrustedCacheAge 的注释 —— 不能用 10 分钟，
+                // 那会把稳稳连着、电量没变化的设备误判成过期。
+                if (!reading.IsFresh(Reading.TrustedCacheAge)) continue;
 
                 if (!_settings.SetDeviceEnabled(slot.HistoryKey, true)) continue;
 

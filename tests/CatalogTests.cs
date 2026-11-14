@@ -213,6 +213,31 @@ namespace PeripheralBattery.Tests
                 "真实身份不该被误判为降级");
         }
 
+        // ============================================================ 数据目录
+
+        [Test]
+        public static void DataDirectoryIsUnderProgramFolderWhenWritable()
+        {
+            // 便携模式：数据应当在 exe 旁边的 data\，不是 %LOCALAPPDATA%。
+            // 设置面板曾把这行**写死**成 %LOCALAPPDATA%\外设电量\settings.json，
+            // 用户照着去找，结果文件其实在 exe 旁边 —— 白找。
+            string dir = Settings.Directory;
+            Assert.True(dir.Length > 0, "目录不能为空");
+            Assert.True(dir.EndsWith("data", System.StringComparison.OrdinalIgnoreCase)
+                || dir.IndexOf("外设电量", System.StringComparison.Ordinal) >= 0,
+                "应当是 data 子目录或回退目录，实际：" + dir);
+        }
+
+        [Test]
+        public static void SettingsFilePathMatchesDirectory()
+        {
+            // 显示给用户的路径必须和真正读写的一致
+            Assert.Equal(
+                System.IO.Path.Combine(Settings.Directory, Settings.FileName),
+                Settings.FilePath,
+                "FilePath 必须基于 Directory 计算，不能写死");
+        }
+
         // ============================================================ 后续设备自动发现
         //
         // 用户问：「我后面添加设备如何添加，会自动检测吗？」

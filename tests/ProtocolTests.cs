@@ -143,9 +143,70 @@ namespace PeripheralBattery.Tests
         [Test]
         public static void VoltageCurveBounds()
         {
-            Assert.Equal(100, Protocols.PercentFromMillivolt(5000) ?? -1, "上限饱���");
+            Assert.Equal(100, Protocols.PercentFromMillivolt(5000) ?? -1, "上限饱和");
             Assert.Equal(0, Protocols.PercentFromMillivolt(3500) ?? -1, "下限");
             Assert.Null(Protocols.PercentFromMillivolt(0), "0mV 应视为无效");
+        }
+
+        // ---- 干电池分支 ----
+        //
+        // 背景：原实现只有一条锂离子曲线（4186mV→100% … 3500mV→0%）。
+        // 干电池（AA/AAA，1.5V 标称）上报 1500mV 这类值时会被判成
+        // 「低于曲线最低点」→ 返回 0%。
+        //
+        // 分界 2000mV：锂电单体最低 3.0V，干电池最高 1.6V，两者不重叠。
+
+        [Test]
+        public static void DryCellVoltageIsInterpolated()
+        {
+            Assert.Equal(100, Protocols.PercentFromMillivolt(1600) ?? -1,
+                "1.6V 应为 100%");
+
+            int at1500 = Protocols.PercentFromMillivolt(1500) ?? -1;
+            Assert.True(at1500 > 80 && at1500 <= 100,
+                "1.5V 应落在 80~100%（实际 " + at1500 + "）");
+
+            int at1300 = Protocols.PercentFromMillivolt(1300) ?? -1;
+            Assert.True(at1300 > 30 && at1300 < 50,
+                "1.3V 应落在 30~50%（实际 " + at1300 + "）");
+
+            int at1150 = Protocols.PercentFromMillivolt(1150) ?? -1;
+            Assert.True(at1150 < 15, "1.15V 应低于 15%（实际 " + at1150 + "）");
+
+            Assert.Equal(0, Protocols.PercentFromMillivolt(900) ?? -1,
+                "0.9V 应为 0%");
+        }
+
+        [Test]
+        public static void DryCellNeverReportsZeroForUsableVoltage()
+        {
+            // 回归断言：修复前 1500mV 会算成 0%
+            Assert.True((Protocols.PercentFromMillivolt(1500) ?? 0) > 0,
+                "可用的干电池绝不能报 0%");
+            Assert.True((Protocols.PercentFromMillivolt(1200) ?? 0) > 0,
+                "还有余电的干电池绝不能报 0%");
+        }
+
+        [Test]
+        public static void ChemistrySwitchUsesThreshold()
+        {
+            // 分界两侧不能串味
+            Assert.Equal(100, Protocols.PercentFromMillivolt(1999) ?? -1,
+                "1999mV 按干电池处理（饱和到满）");
+            Assert.Equal(0, Protocols.PercentFromMillivolt(2001) ?? -1,
+                "2001mV 按锂电处理（低于下限）");
+        }
+
+        [Test]
+        public static void RealLithiumVoltageStillWorks()
+        {
+            // 不能因为加了干电池分支就把锂电行为改坏
+            Assert.Equal(100, Protocols.PercentFromMillivolt(4200) ?? -1,
+                "4.2V 满电");
+            Assert.Equal(50, Protocols.PercentFromMillivolt(3811) ?? -1,
+                "3.811V 是锂电曲线的 50% 点");
+            Assert.Equal(0, Protocols.PercentFromMillivolt(3500) ?? -1,
+                "3.5V 空电");
         }
 
         // ============================================================ 雷蛇

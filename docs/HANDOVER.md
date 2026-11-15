@@ -18,7 +18,7 @@
 | 代码量 | 生产代码 30 个文件 / 约 15100 行；测试 7 个文件 / 约 4100 行 |
 | 单文件 exe | 约 503 KB（framework-dependent） |
 | 第三方依赖 | **零**（只用 BCL + WPF + Win32 P/Invoke） |
-| 测试 | **242 项**脱机断言，全部通过 |
+| 测试 | **246 项**脱机断言，全部通过 |
 | 许可证 | **GPL-3.0**（派生自 GPL 项目，见根 README 致谢） |
 | 内置设备 | **14 台**，覆盖 **14 种协议** |
 | 真机实测设备 | 罗技 G304/PRO X 2、雷蛇 BlackShark V2 Pro（2.4G + 蓝牙）、维咖 MAX102（2.4G + 蓝牙） |
@@ -60,7 +60,7 @@ cd mchose-battery-tray
 
 :: 3) 跑测试，先确认基线是绿的
 dotnet run --project tests\PeripheralBattery.Tests.csproj
-::    应看到「共 242 项，通过 242，失败 0」
+::    应看到「共 246 项，通过 242，失败 0」
 
 :: 4) 编译并验证能读到设备
 build.bat
@@ -251,7 +251,7 @@ src/
     CardPreview.cs        ← --preview：合成数据渲染卡片并截图
     TrayVectorPreview.cs  ← --tray / --traybar：输出矢量 SVG
 tests/
-  PeripheralBattery.Tests.csproj ← 242 项脱机断言，链接 src 下的源文件
+  PeripheralBattery.Tests.csproj ← 246 项脱机断言，链接 src 下的源文件
   Harness.cs              ← 60 行手写测试运行器（不用 xunit）
   CatalogTests.cs         ← 设备表、身份、备注、标题栏计数
   AggregateTests.cs       ← 三层聚合折叠与重采样
@@ -445,7 +445,7 @@ dotnet run --project tests
 ```
 
 会逐项打印 PASS/FAIL 与失败原因。测试零硬件依赖，挂了一般是真改坏了。
-当前是 242 项。
+当前是 246 项。
 
 ---
 

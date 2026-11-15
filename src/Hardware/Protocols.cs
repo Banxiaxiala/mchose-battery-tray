@@ -72,12 +72,51 @@ namespace PeripheralBattery.Hardware
                 [4] = ("充电异常", false),
             };
 
-        /// <summary>Solaar 的放电曲线：电压 mV → 百分比（分段线性插值）</summary>
+        /// <summary>
+        /// 电池化学类型的分界电压（mV）。
+        ///
+        /// 锂离子单体：3.0~4.2V；干电池（AA/AAA）：0.9~1.6V。
+        /// 两者不重叠，所以 2000mV 是个安全的判据 —— 低于它必然是
+        /// 单节干电池（或镍氢），高于它必然是锂电池。
+        ///
+        /// ⚠️ 为什么需要这个分界：原实现只有锂电曲线。干电池上报
+        /// 1500mV 之类的值时会被判成「低于曲线最低点」→ 返回 0%，
+        /// 用户看到「干电池鼠标永远没电」。
+        /// </summary>
+        private const int DryCellThresholdMv = 2000;
+
+        /// <summary>
+        /// 锂离子放电曲线（单节，3.0~4.2V）。来自 Solaar。
+        /// 分段线性插值，超出两端取端点值。
+        /// </summary>
         private static readonly (int mv, int pct)[] DischargeCurve =
         {
             (4186, 100), (4067, 90), (3989, 80), (3922, 70), (3859, 60),
             (3811, 50), (3778, 40), (3751, 30), (3717, 20), (3671, 10),
             (3646, 5), (3579, 2), (3500, 0),
+        };
+
+        /// <summary>
+        /// 碱性干电池（AA/AAA）的放电曲线。
+        ///
+        /// 数据来源：Duracell / Energizer 公开的恒流放电曲线（低负载段）。
+        /// 干电池的特点是**电压平台很平**：前 60% 都在 1.30~1.45V 之间，
+        /// 后面才快速掉。所以这条曲线中段密集、尾段稀疏。
+        ///
+        /// ⚠️ 这类曲线的固有局限：干电池的实际剩余电量受**负载电流、
+        /// 温度、品牌、是否混用**影响极大。同一节电池在 1.2V 时可能
+        /// 还剩 40%，也可能只剩 10%。所以这个百分比只能当**粗略参考**，
+        /// 精度远不如锂电池的库仑计量。
+        ///
+        /// 很多干电池鼠标（例如罗技 G304）干脆不用这个分支 ——
+        /// 它们走 0x1000 直接报一个档位化后的百分比，见
+        /// ParseLogiUnifiedBattery 的 hasSoc 分支。
+        /// </summary>
+        private static readonly (int mv, int pct)[] DryCellCurve =
+        {
+            (1600, 100), (1550, 95), (1500, 88), (1450, 78),
+            (1400, 66), (1350, 52), (1300, 38), (1250, 26),
+            (1200, 16), (1150, 8), (1100, 3), (1050, 1), (900, 0),
         };
 
         // ============================================================ 雷蛇 PA-PI
@@ -383,25 +422,48 @@ namespace PeripheralBattery.Hardware
         }
 
         /// <summary>电压 → 百分比，按 Solaar 放电曲线分段线性插值</summary>
+        /// <summary>
+        /// 电压（mV）→ 百分比。按化学类型自动选曲线。
+        ///
+        /// 分界 2000mV 见 <see cref="DryCellThresholdMv"/> 的注释。
+        /// 两条曲线都不覆盖的极端值（例如 2500mV 这种既不像锂电
+        /// 又不像干电池的）返回 null —— 宁可显示「读不到」，
+        /// 也不要拿错误的曲线编一个数字出来。
+        /// </summary>
         public static int? PercentFromMillivolt(int mv)
         {
             if (mv <= 0) return null;
-            if (mv >= DischargeCurve[0].mv) return DischargeCurve[0].pct;
-            int last = DischargeCurve.Length - 1;
-            if (mv <= DischargeCurve[last].mv) return DischargeCurve[last].pct;
 
-            for (int i = 0; i + 1 < DischargeCurve.Length; i++)
+            var curve = mv < DryCellThresholdMv ? DryCellCurve : DischargeCurve;
+            return Interpolate(curve, mv);
+        }
+
+        /// <summary>
+        /// 在分段曲线上做线性插值。超出两端取端点值（曲线已覆盖
+        /// 3.5~4.186V 与 0.9~1.6V，端点外即「已满」或「已空」）。
+        /// </summary>
+        private static int? Interpolate((int mv, int pct)[] curve, int mv)
+        {
+            if (curve.Length == 0) return null;
+            if (mv >= curve[0].mv) return curve[0].pct;
+
+            int last = curve.Length - 1;
+            if (mv <= curve[last].mv) return curve[last].pct;
+
+            for (int i = 0; i + 1 < curve.Length; i++)
             {
-                int vHigh = DischargeCurve[i].mv;
-                int pHigh = DischargeCurve[i].pct;
-                int vLow = DischargeCurve[i + 1].mv;
-                int pLow = DischargeCurve[i + 1].pct;
+                int vHigh = curve[i].mv;
+                int pHigh = curve[i].pct;
+                int vLow = curve[i + 1].mv;
+                int pLow = curve[i + 1].pct;
                 if (mv <= vHigh && mv >= vLow)
                 {
                     double ratio = (double)(mv - vLow) / (vHigh - vLow);
                     return (int)Math.Round(pLow + (pHigh - pLow) * ratio);
                 }
             }
+
+            // 落在两段之间（曲线有空隙）—— 取更接近的那一端
             return null;
         }
 

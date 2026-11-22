@@ -11,8 +11,8 @@
 > 排查手册、已知限制都在那里。本文件是长期约束，HANDOVER 是上手路径。
 >
 > **当前技术栈**：C# + WPF（`net8.0-windows`）。
-> `archive/python-prototype/` 是早期 Python 实现，仅作协议与算法基准保留，
-> 不再是最新产物。改协议时两边要一起对齐。
+> 早前还有一份 Python 原型（`archive/python-prototype/`）作为协议与算法基准，
+> 已在「重整项目目录」时删除，需要时从 git 历史取（`git show be4dbad^:archive/python-prototype/`）。
 
 ---
 
@@ -20,7 +20,7 @@
 
 - **运行时只允许 .NET 基础类库 + WPF + Win32 P/Invoke**。
   禁止 NuGet 包、第三方 DLL、图标字体包、图片资源包。
-- 理由：单文件 exe 只有 **378 KB**（Python 版是 12 MB）。每引入一个包，
+- 理由：单文件 exe 只有 **503 KB**（Python 版是 12 MB）。每引入一个包，
   体积、启动时间、崩溃面全都变差。
 - 测试也不许用 xunit / nunit / MSTest —— `tests/Harness.cs` 里
   60 行手写运行器就够，`Main` 返回非 0 表示失败。

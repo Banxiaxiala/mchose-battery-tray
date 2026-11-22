@@ -1,10 +1,11 @@
 ﻿# 架构说明
 
-> 本文件按 AGENTS.md 第 12 条要求与代码同步维护。**任何新增模块、
+> 本文件按 AGENTS.md 第 13 条要求与代码同步维护。**任何新增模块、
 > 公共方法调整或协议变更都必须同步更新本文件。**
 
 当前技术栈：**C# 12 + WPF，`net8.0-windows`**。
-`archive/python-prototype/` 是早期 Python 实现，仅作协议与算法基准保留。
+早前还有一份 Python 原型（`archive/python-prototype/`），已在「重整项目目录」时删除，
+需要时从 git 历史取（`git show be4dbad^:archive/python-prototype/`）。
 
 ## 分层
 
@@ -42,7 +43,7 @@ src/                         生产代码
     SettingsPanel.cs            设置面板
     Win32Cursor.cs              光标位置薄封装
   Tools/CardPreview.cs          --preview：合成数据渲染卡片并截图
-tests/                          106 项脱机断言（零硬件、零第三方框架）
+tests/                          246 项脱机断言（零硬件、零第三方框架）
 docs/                           本文件、README、HANDOVER、AGENTS
 assets/preview.png              README 用图
 app.ico / icon.ico              应用图标（根目录，csproj 用 ..\app.ico 引用）
@@ -61,7 +62,7 @@ Program → UI → Services → Hardware → Core → Models
 ### 1. 为什么从 Python 换成 C# + WPF
 
 Python + tkinter 做不出 logi-tray 那种亚克力效果，而且：
-- 单文件 exe **12 MB**（C# 版 **378 KB**）
+- 单文件 exe **12 MB**（C# 版 **503 KB**）
 - 需要 hidapi / Pillow / pystray 三个第三方依赖
 - tkinter 的圆角/毛玻璃要手写 DWM 互操作，且跨线程建 Tk 会让
   `geometry` 静默失效（窗口落到屏幕左上角）

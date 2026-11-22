@@ -94,7 +94,7 @@ build.bat
 ### 分步执行
 
 ```bat
-rem 跑单元测试（106 项，零硬件）
+rem 跑单元测试（246 项，零硬件）
 dotnet run --project tests\PeripheralBattery.Tests.csproj
 
 rem 只打印一次读数，验证协议是否还通
@@ -198,7 +198,7 @@ src/                      生产代码
   Services/               历史与预测、设置持久化、三重自启动
   UI/                     配色、矢量图标、柱状图/折线图、亚克力、卡片、设置面板、托盘
   Tools/                  --preview：合成数据渲染卡片并截图
-tests/                    106 项脱机断言（零硬件、零第三方框架）
+tests/                    246 项脱机断言（零硬件、零第三方框架）
 docs/                     本文件、架构、交接、维护铁律
 assets/                   README 用图
 app.ico / icon.ico        应用图标
@@ -398,10 +398,10 @@ dist/                     构建产物（git 忽略）
 ### 适配其他设备
 
 1. 把真机抓包帧补进 `tests/ProtocolTests.cs` 的断言
-   （Python 侧 `archive/python-prototype/tests/test_protocols.py` 同步）
+   （厂商私有报文放 `tests/VendorProtocolTests.cs`）
 2. 在 `Hardware/Protocols.cs` 加纯解析函数
 3. 在 `Hardware/Readers.cs` 接 I/O
-4. 跑 `build.bat`，106 项测试要全过，再跑 `--probe` 验真机
+4. 跑 `build.bat`，246 项测试要全过，再跑 `--probe` 验真机
 
 ## 实现参考
 

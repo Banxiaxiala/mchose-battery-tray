@@ -2,7 +2,7 @@
 
 > 给接手这个项目的人。目标：**30 分钟内能改一行代码、跑起来、看到效果**。
 >
-> 当前版本 `4.2.0`。若本文与你看到的代码不一致，**以代码为准**，
+> 当前版本 `4.3.0`。若本文与你看到的代码不一致，**以代码为准**，
 > 并把过时的地方顺手改掉（这是 AGENTS.md 第 13 条的要求）。
 
 ---
@@ -15,7 +15,7 @@
 | 项 | 值 |
 |---|---|
 | 技术栈 | C# 12 + WPF，`net8.0-windows` |
-| 代码量 | 生产代码 30 个文件 / 约 15100 行；测试 7 个文件 / 约 4100 行 |
+| 代码量 | 生产代码 30 个文件 / 约 15200 行；测试 7 个文件 / 约 4200 行 |
 | 单文件 exe | 约 503 KB（framework-dependent） |
 | 第三方依赖 | **零**（只用 BCL + WPF + Win32 P/Invoke） |
 | 测试 | **246 项**脱机断言，全部通过 |
@@ -30,6 +30,8 @@
 - 设备清单是**数据**（`Hardware/DeviceCatalog.cs`），加型号不改代码
 - 用户也能在 `data\devices.json` 里加自定义型号，不用重编译
 - 一台设备可以由**多条通道**组成（2.4G 优先、蓝牙回落），按顺序降级
+- 设备的身份（MAC / HID 序列号 / 接收器序列号 + 槽位）与型号分离，
+  所以能挂**备注名**、**通道别名**，插拔后不丢
 - 支持 14 种协议：罗技 HID++、雷蛇 PA/PI、VIA/QMK、蓝牙属性、
   以及 10 家厂商的私有报文（ATK / 飞智 / 漫步者 / 迈从鼠标 / 迈从键盘 /
   GameSir / 华硕 ROG / HyperX / 宏碁 / NuPhy / 高斯）
@@ -60,7 +62,7 @@ cd mchose-battery-tray
 
 :: 3) 跑测试，先确认基线是绿的
 dotnet run --project tests\PeripheralBattery.Tests.csproj
-::    应看到「共 246 项，通过 242，失败 0」
+::    应看到「共 246 项，通过 246，失败 0」
 
 :: 4) 编译并验证能读到设备
 build.bat
@@ -73,6 +75,10 @@ dist\外设电量.exe
 **前三步不需要任何硬件**。第 4 步若一台设备都没读到，属于正常 —— 
 说明这台机器上没有受支持的设备，看 `--probe` 输出里每台设备的报错原因即可
 （「没有找到 XXX 接口」= 设备没插；「没有应答」= 插了但休眠/固件不支持）。
+
+> 仓库里**没有** `archive/` 目录：早前那份 Python 原型（协议基准）已在
+> 「重整项目目录」时删除，需要时从 git 历史里取
+> （`git show be4dbad^:archive/python-prototype/src/hardware/protocols.py`）。
 
 接手前必读的三件事：
 
@@ -111,6 +117,11 @@ dotnet --list-runtimes # 应看到 Microsoft.WindowsDesktop.App 8.0.x
 > 另一个坑：很多机器上**只装了运行时、没装 SDK**（`dotnet --list-runtimes`
 > 有 WindowsDesktop，`dotnet --list-sdks` 却是空的）。这时 `dotnet build`
 > 会直接报「No .NET SDKs were found」，先确认 SDK 在不在。
+>
+> ⚠️ 更要命的是 `dotnet --version` 在**没有 SDK 时也会返回 0**，
+> 所以脚本里不能靠退出码判断 SDK 是否存在，要看 `sdk\*\MSBuild.dll` 在不在。
+> `build.bat` 就是这么判的（依次扫 `%ProgramFiles%\dotnet`、`D:\tool\dotnet`、
+> `G:\tool\dotnet`，取第一个有 SDK 的）。
 
 ### 2.2 跑起来
 
@@ -118,7 +129,7 @@ dotnet --list-runtimes # 应看到 Microsoft.WindowsDesktop.App 8.0.x
 build.bat
 ```
 
-它做四件事：杀残留进程 → 跑 51 项测试 → 编译 → 发布到 `dist\`。
+它做四件事：杀残留进程 → 跑 **246 项**测试 → 编译 → 发布到 `dist\`。
 
 想跳过测试只编译：
 
@@ -166,6 +177,10 @@ dist\外设电量.exe --probe
 
 > 「充电状态未知」是正常的：系统的蓝牙电量属性里没有充电位
 > （`{104EA319-…} 3` 实测恒缺失），不能默认成「放电中」。
+>
+> 另外这条电量是 **Windows 缓存**，只有设备主动上报时才更新。
+> 所以卡片上会带「N 分钟前更新」的后缀，别把它当成 bug
+> （`Models.DescribeAge`，5 分钟内不提，超过 6 小时判为不可信）。
 
 如果三台都是「读取失败」，见本文第 6 节排查。
 
@@ -205,6 +220,15 @@ dist\外设电量.exe --probe --trace
 
 > ⚠️ 托盘模式下没有控制台，别在那里开 `--trace`；用 `--probe` 配合。
 
+其它命令行开关（都实现在 `Program.Main` 的入口分支里）：
+
+| 参数 | 作用 |
+|---|---|
+| `--probe` | 打印每台设备的读取结果后退出（无 UI） |
+| `--trace` | 打开原始报文日志（可与 `--probe` 同用），同时写 `data\logs` |
+| `--preview [--light] [--width N] [--repeat N] [--hover X]` | 用合成数据渲染卡片并截图，改 UI 时不用起托盘 |
+| `--tray` / `--traybar [--light]` | 输出托盘图标的矢量 SVG（README 里的示意图） |
+
 ---
 
 ## 3. 代码在哪
@@ -217,7 +241,8 @@ src/
   Program.cs              ← 装配层：设备表 + 刷新循环 + 交互。改「怎么跑」看这里
   Models/
     Models.cs             ← 纯数据 Reading/Sample/Bucket/Forecast/Analysis
-                            + 设备身份规则、屏幕坐标夹取（都可脱机测）
+                            + DeviceIdentity 身份规则 + DescribeAge 新鲜度
+                            + 屏幕坐标夹取（都可脱机测）
     TooltipText.cs        ← 悬停提示拼装与 63 字符降级
   Core/
     Win32.cs              ← 全项目唯一的 P/Invoke 声明。加系统 API 来这
@@ -227,7 +252,7 @@ src/
   Hardware/
     DeviceCatalog.cs      ← ★ 设备表 + 协议链声明。**加型号只改这里**
     DeviceBinder.cs       ← 把设备定义装配成读函数
-    Protocols.cs          ← 罗技/雷蛇/VIA 三套协议的纯解析
+    Protocols.cs          ← 罗技/雷蛇/VIA 三套协议的纯解析（含电压↔百分比曲线）
     VendorProtocols.cs    ← 10 家厂商私有报文（纯解析，零 I/O）
     Readers.cs            ← 罗技/雷蛇的 I/O 编排
     Max102Reader.cs       ← VIA 族键盘（维咖/高斯），参数化
@@ -242,9 +267,9 @@ src/
     SparkChart.cs         ← 柱状图（自绘，支持悬停提示）
     LineChart.cs          ← 折线图（真实时间轴，断线，悬停提示）
     Acrylic.cs            ← DWM 毛玻璃 + 圆角（两级回退）
-    BatteryCard.cs        ← 卡片窗口。改布局看这里
-    SettingsPanel.cs      ← 设置面板 + 二级「管理设备」窗口
-    TrayIcon.cs           ← 托盘图标 + 菜单 + 位置查询 + 设备接入广播
+    BatteryCard.cs        ← 卡片窗口。改布局看这里（含柱状/折线切换、时间范围）
+    SettingsPanel.cs      ← 设置面板 + 二级「管理设备」窗口 + 打开数据目录
+    TrayIcon.cs           ← 托盘图标 + 菜单 + 位置查询 + WM_DEVICECHANGE 广播
     TrayIconArt.cs        ← 环状图标绘制（环数随设备数自适应）
     Win32Cursor.cs        ← 光标位置薄封装
   Tools/
@@ -252,7 +277,7 @@ src/
     TrayVectorPreview.cs  ← --tray / --traybar：输出矢量 SVG
 tests/
   PeripheralBattery.Tests.csproj ← 246 项脱机断言，链接 src 下的源文件
-  Harness.cs              ← 60 行手写测试运行器（不用 xunit）
+  Harness.cs              ← 手写测试运行器（不用 xunit）
   CatalogTests.cs         ← 设备表、身份、备注、标题栏计数
   AggregateTests.cs       ← 三层聚合折叠与重采样
   HistoryTests.cs         ← 历史/预测/设置
@@ -282,28 +307,40 @@ Program → UI → Services → Hardware → Core → Models
 
 `UI/Palette.cs`。注意每组颜色都有浅色/深色两份，别只改一个。
 
-电量档位色（用户也能在设置里覆盖）：
+电量档位色（用户也能在设置里覆盖，见 `Settings.ColorHigh` 等五个字段）：
 ```csharp
 public static readonly Color BatteryHigh = Color.FromRgb(0x22, 0xC5, 0x5E);
 ```
+
+默认阈值在 `Services/Settings.cs`：`ThresholdCritical=10`、`ThresholdLow=30`、
+`ThresholdMid=55`。
 
 ### 4.2 改卡片布局
 
 `UI/BatteryCard.cs` 的 `BuildDevice()`。顺序是：
 标签行 → 电池图标 + 大号电量 + 档位 → 进度条 → 24h 区间 → 柱状图。
 
+图表有两套实现（`ChartStyle` = `bar` / `line`）和时间范围五档
+（`ChartRangeOptions = {24, 168, 720, 8760, 17520}` 小时，即 24h/7d/30d/1y/2y），
+都由 `ApplyChartSettings(style, rangeHours)` 统一切换。
+
 ### 4.3 改刷新逻辑
 
 `Program.RefreshNow()`。目前跑在 UI 线程（HID 读取约 130ms + 55ms，可接受）。
 要加设备的话建议改成 `Task.Run` + `Dispatcher.Invoke`。
 
+设备**热插拔**不靠轮询：`UI/TrayIcon.cs` 监听 `WM_DEVICECHANGE`（0x0219），
+收到就抛一次「设备数变化」事件，`Program` 再决定要不要重扫。
+
 ### 4.4 支持新设备
 
 三步：
 
-1. 抓包，把真机帧补进 `tests/ProtocolTests.cs` 做断言
-2. 在 `Hardware/Protocols.cs` 加纯解析函数（只吃 `byte[]`，不碰 I/O）
-3. 在 `Hardware/Readers.cs` 加 I/O 编排，然后在 `Program` 里接上
+1. 抓包，把真机帧补进 `tests/ProtocolTests.cs`（或 `VendorProtocolTests.cs`）做断言
+2. 在 `Hardware/Protocols.cs`（或 `VendorProtocols.cs`）加纯解析函数
+   （只吃 `byte[]`，不碰 I/O）
+3. 在 `Hardware/DeviceCatalog.cs` 里加一条设备定义，在
+   `Hardware/Readers.cs` / `VendorReader.cs` 里接 I/O
 
 **先写测试断言，再写实现** —— 协议是逆向来的，没有抓包帧的解析代码
 等于没有约束，改一行就可能悄悄错位。
@@ -366,6 +403,36 @@ cmd.exe 会把 BOM 当命令的一部分，第一行必然报
 脚本里用 PowerShell 按进程路径匹配来杀 —— 中文 exe 名在纯 ASCII 的
 `.bat` 里写不进去，`taskkill /IM` 匹配不可靠。
 
+### 5.8 电压换算有两条曲线
+
+`Hardware/Protocols.cs` 的 `PercentFromMillivolt()` **按毫伏值自动分流**：
+
+| 区间 | 曲线 | 典型设备 |
+|---|---|---|
+| ≥ 2000 mV | 锂电池单节（4186→100% … 3000→0%） | 锂电鼠标/耳机/键盘 |
+| < 2000 mV | 干电池（1600→100%，1500→88%，900→0%） | 用 AA/AAA 的老鼠标 |
+
+分界线是 `DryCellThresholdMv = 2000`：锂电单节 3.0–4.2 V，干电池 0.9–1.6 V，
+两者不重叠，所以判定不会误伤。**干电池的放电平台很平**（前 60% 的容量挤在
+1.30–1.45 V 之间），百分比只能当粗略趋势，别拿它做「还剩几分钟」的精确预测。
+
+### 5.9 设备身份不能用型号代替实例
+
+`Models.DeviceIdentity` 的四种身份：
+
+| 来源 | 格式 | 说明 |
+|---|---|---|
+| 蓝牙 | `bt:AA:BB:CC:DD:EE:FF` | 最可靠 |
+| HID | `hid:VID:PID:序列号` | 序列号为空时**故意返回空串**，不许退化成型号 |
+| 罗技槽位 | `hid:046D:<接收器序列号>:slot<N>` | 同一接收器内槽位唯一 |
+| 降级 | `model:<设备 key>` | 同型号两台会共用历史与开关，界面上要标注 |
+
+要点：**序列号为空时不要生成「看起来唯一」的身份** —— 那会让两台同型号
+撞在一起还看不出问题。宁可降级到 `model:` 并明说。
+
+通道别名（`DeviceIdentity.ResolveIdentity`）解决的是「切通道后备注丢失」：
+蓝牙身份和 2.4G 身份天然不同，靠 `ChannelAliases` 收敛到同一个主身份。
+
 ---
 
 ## 6. 排查手册
@@ -401,7 +468,7 @@ dist\外设电量.exe --probe --trace
 | 「USB 有线模式，无线模块未工作」 | 插着数据线，`md_info` 全零 | 拔线用 2.4G，或切到蓝牙通道 |
 | 「没有找到维咖 VIA 接口」 | dongle 不在 / 键盘关机 | 插 dongle，按 FN 切到 2.4G 通道 |
 | 「没有找到蓝牙通道的 MAX102」 | 系统没记录过电量 | 先蓝牙连一次，等 Windows 同步（几秒） |
-| 电量一直是旧值 | 属性是缓存的 | 看 `在线` 字段；离线时的值不代表当前 |
+| 电量一直是旧值 | 属性是缓存的 | 看 `在线` 字段和「N 分钟前更新」后缀；离线时的值不代表当前 |
 
 > ⚠️ **绝对不要试图用 `cmd 6` 读电量** —— 那是「恢复出厂默认键位」，
 > 会把用户改的键位全冲掉。
@@ -438,10 +505,17 @@ Windows 默认把新图标折叠进「^」里。从「^」把图标拖到任务�
 检查 `BatteryCard.Reposition()`。必须等 `ActualHeight > 0` 才能算位置，
 所以定位挂在 `ContentRendered` / `SizeChanged` 上，不能放在构造函数里。
 
+### 设置面板里「打开数据目录」没反应
+
+它用 `explorer.exe` 打开，不是 `Process.Start(目录)`（后者对目录不可靠）。
+按钮实现见 `UI/SettingsPanel.cs`（`Content = "打开数据目录"`）。
+路径本身来自 `Settings.Directory`，便携模式与 `%LOCALAPPDATA%` 都可能，
+所以**不要在别处写死路径**。
+
 ### 测试挂了
 
 ```bat
-dotnet run --project tests
+dotnet run --project tests\PeripheralBattery.Tests.csproj
 ```
 
 会逐项打印 PASS/FAIL 与失败原因。测试零硬件依赖，挂了一般是真改坏了。
@@ -452,16 +526,23 @@ dotnet run --project tests
 ## 7. 数据文件
 
 ```
-%LOCALAPPDATA%\外设电量\
+<数据目录>\
   history_logitech.json   罗技历史样本（48 小时，最多约 170 KB）
   history_razer.json      雷蛇历史样本
   history_max102.json     维咖键盘历史样本
-  settings.json           用户设置
+  settings.json           用户设置（含备注、通道别名、阈值、配色）
+  devices.json            可选：用户自定义设备（不放也行）
+  logs\                   --trace 的日志
 ```
 
-> 目录名在 v4 从 `2.4G设备电量` 改成了 `外设电量`。
-> `Settings.Directory` 首次访问时会**整目录 Move** 过来（历史一起搬），
-> 搬不动（旧进程占用）就退回旧目录继续用，不会丢数据。
+**数据目录在哪**（`Services/Settings.cs` 的 `Directory` 属性）：
+
+1. **便携模式**：exe 同级目录下可写的 `data\` → 就用它
+2. 否则 `%LOCALAPPDATA%\外设电量\`
+3. 老目录（`2.4G设备电量` 等）首次访问时**整目录 Move** 过来（历史一起搬），
+   搬不动（旧进程占用）就退回旧目录继续用，不会丢数据
+
+在设置面板里点「打开数据目录」能直接看出当前用的是哪个。
 
 - **都不带 BOM**（带 BOM 的 JSON 会让 Python 等解析器直接报错）
 - 删掉即恢复初始状态
@@ -491,6 +572,26 @@ dotnet publish src\PeripheralBattery.csproj -c Release ^
 
 产出 **66 MB**，开箱即用，不依赖任何已装运行时。
 
+> `EnableCompressionInSingleFile` 只在 `SelfContained=true` 时合法。
+> 放进 `build.bat` 的默认那行会报 **NETSDK1176**。
+
+### 发布到 GitHub
+
+发版流程（AGENTS.md 第 11 条「留旧测新」）与本次 v4.3.0 的做法：
+
+```bat
+:: 1) 版本号与文档同步：src\PeripheralBattery.csproj 的 <Version>
+:: 2) 全量验证（246 项必须是绿的）
+build.bat
+:: 3) 提交、推、打 tag
+git commit -am "release: v4.3.0"
+git push origin main
+git tag -a v4.3.0 -m "v4.3.0"
+git push origin v4.3.0
+:: 4) 建 Release 并附上 exe
+gh release create v4.3.0 "dist\外设电量.exe" --title "v4.3.0" --notes-file 发布说明.md
+```
+
 ### `.pdb` 不用分发
 
 调试符号文件，只有把崩溃堆栈还原成源码行号时才用。运行不需要。
@@ -518,20 +619,34 @@ GitHub 上本仓库标记为 fork 自
 同理，`git pull upstream` 也不要用 —— 本地 upstream remote 的推送已被
 禁用（`--PUSH-DISABLED`），但拉取仍会带入上游内容。
 
+> fork 还有个副作用：**GitHub 语言统计会显示成 Python**。
+> 处理办法写在 `.gitattributes`（`tools/*.py linguist-vendored` 等），
+> 细节见 AGENTS.md 第 9d 条。改完要等 GitHub 重算，不会立刻变。
+
+---
+
 ## 9. 当前状态与已知限制
 
 ### 已实现
 
 - 罗技 HID++ 2.0 双集合读取（两遍槽位探测，空槽位 6ms 排除）
-- 维咖 MAX102 双通道（2.4G VIA `cmd 20` / 蓝牙系统属性），2.4G 优先
+- 维咖 MAX102 / 高斯 GS3108 双通道（2.4G VIA `cmd 20` / 蓝牙系统属性），2.4G 优先
 - 雷蛇耳机双通道（2.4G 64 字节 PA/PI / 蓝牙系统属性），2.4G 优先
 - 蓝牙电量统一读法：`BTHLE` + `BTHENUM` 两棵树，电量按名字、在线按 MAC 聚合
+- 蓝牙电量标注新鲜度（「N 分钟前更新」，超 6 小时判不可信）
+- 设备身份（MAC / 序列号 / 接收器+槽位）+ 备注名 + 通道别名收敛
+- **首次启动自动探测**实际连接的设备（结果存 `AutoProbeDone`），不让没验证的
+  设备占用托盘环
+- 设备热插拔：`WM_DEVICECHANGE` 广播触发重扫（不轮询全设备）
 - 亚克力卡片（DWM 毛玻璃 + 圆角，系统不支持时自动回退不透明）
-- 24 小时柱状图 + 续航预测（斜率法，与 logi-tray 对齐）
+- 历史图：柱状 / 折线两种样式 × 24h/7d/30d/1y/2y 五档范围，悬停看具体数值
+- 24 小时续航预测（斜率法，与 logi-tray 对齐）
 - 电量跳变过滤（> 3 点/分钟即丢弃，挡住唤醒瞬间的假读数）
-- 设置面板：间隔 / 卡片宽高 / 图表高度 / 配色 / 阈值 / 开关
+- 电压换算自动分流锂电/干电池两条曲线
+- 设置面板：间隔 / 卡片宽高 / 图表高度 / 配色 / 阈值 / 开关 / 管理设备 /
+  打开数据目录
 - 三重自启动对齐 + `WM_TASKBARCREATED` 托盘自愈
-- 51 项脱机测试
+- **246 项**脱机测试
 - `--probe --trace` 原始报文抓取（排查读不到的唯一手段）
 
 ### 已知限制
@@ -542,9 +657,13 @@ GitHub 上本仓库标记为 fork 自
 | 续航预测需要 30 分钟样本 | 刚装好会显示「放电数据积累中」 |
 | 刷新在 UI 线程 | 一次读取约 200ms，设备多了会卡顿 |
 | 只测过 3 款设备 | 罗技 PRO X 2、雷蛇 BlackShark V2 Pro（2.4G + 蓝牙）、维咖 MAX102（2.4G + 蓝牙） |
+| 另外 11 台是移植的 | 🟡 有断言、有帧格式来源，但没有对应真机验证 |
 | 蓝牙通道拿不到充电状态 | 系统属性 `{104EA319-…} 3` 实测恒缺失，界面只能写「充电状态未知」 |
+| 蓝牙电量是缓存 | Windows 只在设备主动上报时更新，程序无法触发重读，只能如实标注时间 |
 | 蓝牙通道按名字前缀认设备 | 耳机 `Razer*`、键盘 `MAX102*`。换品牌或改名就可能漏（为什么不按 MAC：MAC 随重配对变） |
 | 罗技设备名依赖 `0x0005` 特性 | 个别老机型不支持时显示成「鼠标」 |
+| 序列号缺失时身份降级 | 两台同型号会共用历史与备注（`model:` 身份），界面上会标注 |
+| 干电池百分比只能看趋势 | 平台太平（1.30–1.45 V 覆盖前 60%），不适合做精确预测 |
 | 有线模式下读不到无线那端 | 物理限制：鼠标插线后不再通过 2.4G 上报，接收器槽位全部不可达。程序会如实读直连端点 |
 | 直连与接收器同时在线时只取一个 | `GroupReceivers` 接收器优先、命中即返回。不做两者合并，避免两个来源的电量打架 |
 
@@ -561,17 +680,17 @@ GitHub 上本仓库标记为 fork 自
 
 接手第一天，按这个顺序过一遍：
 
-- [ ] `dotnet --list-sdks` 有 8.0.x
-- [ ] `build.bat` 跑通，看到「51 项，通过 51，失败 0」
+- [ ] `dotnet --list-sdks` 有 8.0.x（没有就看 2.1 的 `dotnet-install.ps1`）
+- [ ] `build.bat` 跑通，看到「共 246 项，通过 246，失败 0」
 - [ ] `--probe` 能读到自己的设备（若设备不同见第 6 节）
 - [ ] `--probe --trace` 能看到原始报文（这是你以后排查的唯一手段）
 - [ ] 起托盘，左键点图标能弹出卡片
-- [ ] 点齿轮能打开设置面板
+- [ ] 点齿轮能打开设置面板，二级「管理设备」能开
 - [ ] 改 `UI/Palette.cs` 里一个颜色，重新 `build.bat`，看到界面变了
-- [ ] 读一遍 `AGENTS.md`（12 条维护铁律）
+- [ ] 用 `--preview` 截一张卡片图（不用真设备就能验证 UI 改动）
+- [ ] 读一遍 `AGENTS.md`（13 条维护铁律）
 - [ ] 读一遍 `ARCHITECTURE.md`（关键设计决策的理由）
-- [ ] 看一眼 `archive/python-prototype/` 知道还有个 Python 旧版
-      （仅作协议基准保留，不参与构建）
+- [ ] 跑一次 `py -3.13 tools\list_files.py`，确认「交接必需文件齐全」
 
 ---
 
@@ -586,9 +705,12 @@ GitHub 上本仓库标记为 fork 自
 | [marsuyone/mchose-battery-tray](https://github.com/marsuyone/mchose-battery-tray) | 本项目的基础（单图标多圆环、主题跟随、单实例） |
 | [Banxiaxiala/weikav-max102-re](https://github.com/Banxiaxiala/weikav-max102-re) | 本项目作者自己的维咖 MAX102 固件逆向仓库：电量通路反汇编、`cmd 20` 补丁固件、指示灯位图、`DEVPKEY_Bluetooth_Battery` 读法 |
 
+移植的 11 家厂商协议，各自的帧格式来源逐条写在
+`Hardware/VendorProtocols.cs` 的注释里，改动前先读那段注释。
+
 ---
 
 ## 12. 联系与署名
 
-协议逆向与实现参考了上面三个开源项目，请在修改时保留原仓库链接与署名。
+协议逆向与实现参考了上面四个开源项目，请在修改时保留原仓库链接与署名。
 本工具与罗技、雷蛇官方无关，不保证适配其他型号或固件版本。
